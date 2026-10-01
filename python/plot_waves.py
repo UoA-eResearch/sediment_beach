@@ -35,12 +35,17 @@ def plot_waves(fname=os.path.join(REPO, "wave_data.mat"), out=os.path.join(HERE,
     import matplotlib.pyplot as plt
     t, ll, h, w, p = load_wave_data(fname)
     fig, axs = plt.subplots(3, 1, figsize=(12, 9), sharex=True, constrained_layout=True)
-    for ax, data, cmap, label in zip(axs, (w.T, h.T, p.T), ("twilight", "viridis", "magma"),
+    from matplotlib.colors import LinearSegmentedColormap
+    blues = LinearSegmentedColormap.from_list("blue", ["#f4f8fd", "#9ec5f4", "#3987e5", "#1c5cab", "#0d366b"])
+    oranges = LinearSegmentedColormap.from_list("orange", ["#fdf3ee", "#f6b99f", "#eb6834", "#a9441c", "#5c2109"])
+    # direction is cyclic (0 = 360 degrees), so it gets a cyclic colour map
+    for ax, data, cmap, label in zip(axs, (w.T, h.T, p.T), ("twilight", blues, oranges),
                                      ("Wave direction (°)", "H$_s$ (m)", "T$_p$ (s)")):
         with warnings.catch_warnings():
             # the contour's longitude is not monotonic (MATLAB's pcolor accepts that too)
             warnings.simplefilter("ignore", UserWarning)
             pc = ax.pcolormesh(t, ll, data, shading="auto", cmap=cmap)
+        ax.grid(False)
         ax.invert_yaxis()
         ax.set_ylabel("Longitude")
         fig.colorbar(pc, ax=ax, label=label)

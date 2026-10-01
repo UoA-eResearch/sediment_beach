@@ -85,6 +85,15 @@ location, so it can be run from any working directory.
 | `wave_data.mat` | The same interpolated waves as MATLAB arrays (v7.3). |
 | `30_sept_int_w/output.mat` | Stored result of an earlier `hindcast_run` (`O`, `P`, `S`). The benchmark harness takes its initial coastline from here. |
 
+### Results, figures, Python port, benchmarks
+
+| Folder | Content |
+|---|---|
+| [`results/`](results/README.md) | Output of the full 2000–2024 hindcast (Python port): `output.mat`, `project_output` results, per-transect trends, all benchmark timings (`.mat` files in Git LFS) |
+| `docs/figures/` | Figures used in this README (`python/make_figures.py`) |
+| [`python/`](python/README.md) | Python port of the workflow and of the ShorelineS code path used here, with tests |
+| `benchmark/` | MATLAB/Octave timing harness and equivalence tests |
+
 ### `ShorelineS_functions/`
 
 A vendored copy of the ShorelineS model (IHE Delft & Deltares, LGPL-2.1).
@@ -119,6 +128,57 @@ The run settings used in this project (see `hindcast_run.m`):
 | boundary conditions | `periodic` | at both ends |
 | `storageinterval` | 30 days | output interval |
 | `plotinterval` | 240 steps (30 days) | plot/video interval |
+
+## Findings
+
+Results of the full 2000–2024 hindcast with the settings of `hindcast_run.m`,
+run with the Python port. The Python run reproduces the MATLAB run stored in
+`30_sept_int_w` to 1e-7 m (see [Performance](#performance)), so these are the
+results of the MATLAB model as configured. The outputs are in
+[`results/`](results/README.md), and the figures are made by
+`python/make_figures.py`.
+
+![Cross-shore change, model vs CoastSat](docs/figures/crossshore_change_model_vs_coastsat.png)
+
+![Shoreline trend per transect](docs/figures/shoreline_trends.png)
+
+Cross-shore change is measured along ±500 m normals from the initial coastline
+(`project_output`). Positive means seaward (accretion). "Not in the PCA" marks
+the transects whose observations are held at a single CoastSat position.
+
+- **The model is not calibrated.** The settings are ShorelineS defaults
+  (`qscal = 1`, `d = 10 m`, Kamphuis transport), and modelled change is
+  several times larger than observed. On the transects with real
+  observations (in the PCA), the median change by 2024 is +47 m in the model
+  vs +13 m in CoastSat on beach 2. The 5–95 % range on beach 3 is −122 to
+  +149 m in the model vs +3 to +18 m in CoastSat. The model's cross-shore
+  variability (median standard deviation 17 m) is about twice the observed
+  (9 m).
+- **Beach 2 (nzd0207): the alongshore pattern is reasonable.** The per-transect
+  trends of model and CoastSat correlate (r = 0.65 on PCA transects, both
+  accreting in the middle of the beach), but the model's median trend is
+  about twice the observed (+1.9 vs +0.9 m/yr).
+- **Beach 3 (nzd0217): the pattern does not match** (r = 0.19). CoastSat shows
+  a uniform small accretion (+0.6 m/yr). The model has a large accreting bulge
+  around transects 330–450 (up to +6 m/yr) and erosion in the eastern third
+  (down to −4 m/yr).
+- **The west end of each beach erodes strongly in the model:** −260 to −390 m
+  by 2024, of which −100 to −145 m happens in the first ~2.5 years. These
+  stretches (beach 2 transects 1–60, beach 3 transects 1–38) are exactly the
+  ones left out of the PCA, so the observations cannot confirm or refute this.
+  A fast initial adjustment at the section ends suggests a boundary or
+  initial-orientation effect rather than a real trend. Both sections use
+  `periodic` boundary conditions, which feed the transport leaving one end
+  of a beach into the other end. That is worth checking before calibrating.
+- **CoastSat shows coherent, beach-wide events** (for example erosion around
+  2009 and 2011, and accretion in 2019–2020 and 2023–2024). The model's
+  long-term divergence is much larger than these signals, so at this
+  calibration their timing cannot be compared. After calibration, the
+  30-day-mean panels are the natural comparison.
+
+Wave forcing along the 25 m contour, 1999–2024 (`plot_waves`):
+
+![Waves along the 25 m contour](docs/figures/waves_along_contour.png)
 
 ---
 
@@ -202,6 +262,8 @@ bit-for-bit equal). Transport differs only at floating-point round-off level
 
 ### Python port vs. Octave
 
+![Runtime](docs/figures/runtime.png)
+
 `python/` contains a Python port of the workflow (see
 [python/README.md](python/README.md)). Same machine, each run alone:
 
@@ -227,6 +289,8 @@ this configuration made in MATLAB (output up to 2004-03-10). The Python run
 uses the same grid at every stored time, and the coastline positions differ
 by at most 1·10⁻⁷ m (median 9·10⁻¹⁰ m on cross-shore distance) after 4 years.
 That is floating-point round-off, and it does not grow over time.
+
+![Python vs MATLAB](docs/figures/validation_python_vs_matlab.png)
 
 **Why Python is faster for the model but not for `project_output`.** The
 MATLAB model code makes hundreds of thousands of small function calls per
