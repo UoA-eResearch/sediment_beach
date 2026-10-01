@@ -1,7 +1,7 @@
 
 clear all
 
-addpath 'C:\Users\mpul348\Documents\code_paper2\ShorelineS_functions'; %Add shorelineS model functions
+addpath(fullfile(fileparts(mfilename('fullpath')),'ShorelineS_functions')); %Add shorelineS model functions (folder next to this script)
 S=struct;
 start = '2000-01-01'; S.reftime = start ;
 end_simul = '2024-12-30'; S.endofsimulation = end_simul;
@@ -48,7 +48,12 @@ S.plotDIR=30;
 %S.plotUPW=1;
 S.plotHS=30;
 S.video=1;
-% S.plotinterval=1;
+% Plot (and store a video frame) every 240 time steps = 30 days at dt = 3 h.
+% The ShorelineS default (plotinterval=1) redraws the figure and stores a
+% full-size video frame in memory at every 3-hourly step (~73,000 frames for
+% 2000-2024), which dominates the run time and memory use.
+% Set to 1 to restore the original behaviour.
+S.plotinterval=8*30;
 S.fignryear=1;
 
 [S]=ShorelineS(S);

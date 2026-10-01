@@ -68,20 +68,83 @@ function [dmin,xcr,ycr,dmax,xcm,ycm] = get_polydistance(Xr,Yr,Xc,Yc,Lcrit)
     Xrnormal = [Xr,Xr]+[-Lcrit./Lxy.*dy2,Lcrit./Lxy.*dy2];
     Yrnormal = [Yr,Yr]+[Lcrit./Lxy.*dx2,-Lcrit./Lxy.*dx2];
     
-    for ii=1:length(Xr)
-        %quick=1;
-        [xcr0,ycr0,~,~,~,~,ui,~]=get_intersections(Xrnormal(ii,:),Yrnormal(ii,:),Xc,Yc);
-        if ~isempty(xcr0)
-            imin=find(ui==min(ui));
-            xcr(ii)=xcr0(imin);
-            ycr(ii)=ycr0(imin);
-            dmin(ii)=(0.5-ui(imin))*Lcrit*2;
-            if nargout>3
-                imax=find(ui==max(ui));
-                xcm(ii)=xcr0(imax);
-                ycm(ii)=ycr0(imax);
-                dmax(ii)=(0.5-ui(imax))*Lcrit*2;
+    % Intersect all cross-shore normals with the coastline at once (in chunks
+    % of normals to limit memory). This uses the same crossing computation as
+    % get_intersections, and picks per normal the crossing closest to the
+    % seaward end of the normal (smallest ui), as the former loop did.
+    eps=1e-5;                         % same tolerance as in get_intersections
+    Xc=Xc(:)';
+    Yc=Yc(:)';
+    nseg=length(Xc)-1;
+    if nseg>=1
+        xj=Xc(1:nseg);
+        yj=Yc(1:nseg);
+        dxc=Xc(2:end)-xj;
+        dyc=Yc(2:end)-yj;
+        xjmin=min(xj,Xc(2:end));
+        xjmax=max(xj,Xc(2:end));
+        yjmin=min(yj,Yc(2:end));
+        yjmax=max(yj,Yc(2:end));
+        rc2=dyc./dxc;
+        y2r=yj-xj.*rc2;
+        nchunk=max(1,floor(2e6/nseg));
+        for i0=1:nchunk:length(Xr)
+            ii=(i0:min(i0+nchunk-1,length(Xr)))';
+            xi=Xrnormal(ii,1);
+            yi=Yrnormal(ii,1);
+            dx1=Xrnormal(ii,2)-xi;
+            dy1=Yrnormal(ii,2)-yi;
+            rc1=dy1./dx1;
+            y1r=yi-xi.*rc1;
+            
+            xc=(y2r-y1r)./(rc1-rc2);
+            yc=rc1.*xc+y1r;
+            both=(dx1~=0) & (dxc~=0);
+            xc(~both)=nan;
+            yc(~both)=nan;
+            id2=(dx1==0) & (dxc~=0);
+            if any(id2(:))
+                xcr2=xi+zeros(1,nseg);
+                ycr2=rc2.*xcr2+y2r;
+                xc(id2)=xcr2(id2);
+                yc(id2)=ycr2(id2);
             end
-        end 
-    end 
+            id3=(dx1~=0) & (dxc==0);
+            if any(id3(:))
+                xcr3=xj+zeros(length(ii),1);
+                ycr3=rc1.*xcr3+y1r;
+                xc(id3)=xcr3(id3);
+                yc(id3)=ycr3(id3);
+            end
+            idnan=xc<max(min(xi,Xrnormal(ii,2)),xjmin)-eps | xc>min(max(xi,Xrnormal(ii,2)),xjmax)+eps;
+            xc(idnan)=nan;
+            yc(idnan)=nan;
+            idnan=yc<max(min(yi,Yrnormal(ii,2)),yjmin)-eps | yc>min(max(yi,Yrnormal(ii,2)),yjmax)+eps;
+            xc(idnan)=nan;
+            yc(idnan)=nan;
+            valid=~isnan(xc);
+            
+            % fraction along the normal (0 = seaward end, 1 = landward end)
+            ui=((xc-xi).*dx1+(yc-yi).*dy1)./(dx1.^2+dy1.^2);
+            ui=min(max(ui,0),1);
+            
+            uimin=ui;
+            uimin(~valid)=inf;
+            [umin,jmin]=min(uimin,[],2);
+            has=isfinite(umin);
+            idx=sub2ind(size(xc),find(has),jmin(has));
+            xcr(ii(has))=xc(idx);
+            ycr(ii(has))=yc(idx);
+            dmin(ii(has))=(0.5-umin(has))*Lcrit*2;
+            if nargout>3
+                uimax=ui;
+                uimax(~valid)=-inf;
+                [umax,jmax]=max(uimax,[],2);
+                idx=sub2ind(size(xc),find(has),jmax(has));
+                xcm(ii(has))=xc(idx);
+                ycm(ii(has))=yc(idx);
+                dmax(ii(has))=(0.5-umax(has))*Lcrit*2;
+            end
+        end
+    end
 end 

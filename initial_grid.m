@@ -247,9 +247,13 @@ for ib = 1:length(beach)
     % Parse "lat lon" strings
     % -----------------------------------------------------------
 
-    for i = 1:nRows
+    % Only the columns of the removed transects are used below, so only
+    % those columns are parsed (parsing every cell of the sheet is slow)
+    colsToParse = idx_remove(idx_remove <= nCols);
 
-        for j = 1:nCols
+    for j = colsToParse(:)'
+
+        for i = 1:nRows
 
             val = data{i,j};
 
@@ -290,7 +294,13 @@ for ib = 1:length(beach)
     % Convert satellite coordinates to NZTM2000
     % -----------------------------------------------------------
 
-    [x_obs,y_obs] = projfwd(crs,lat,lon);
+    x_obs = NaN(nRows,nCols);
+    y_obs = NaN(nRows,nCols);
+
+    if ~isempty(colsToParse)
+        [x_obs(:,colsToParse),y_obs(:,colsToParse)] = projfwd(crs, ...
+            lat(:,colsToParse),lon(:,colsToParse));
+    end
 
 
     %% ==========================================================

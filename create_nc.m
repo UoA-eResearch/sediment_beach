@@ -86,15 +86,30 @@ ncwrite(input_nc,'station_y',station_y);
 
 %************interpolating and writing in the netcdf file 
 
+%****interpolation weights
+% The Oceanum node positions do not change in time, and linear interpolation
+% (with nearest-neighbour extrapolation) is linear in the node values. So the
+% interpolation from the nodes to the contour points can be written as a
+% weight matrix W (contour points x nodes), built once by interpolating unit
+% vectors. Every hourly field is then interpolated with a single matrix
+% product, instead of evaluating the scatteredInterpolant for every hour.
+% Hours with missing (NaN) node values are interpolated as before, one by one,
+% because 0*NaN would otherwise spread the NaN to all contour points.
+Nn = numel(lon);
+F_w = scatteredInterpolant(lon, lat, zeros(Nn,1), 'linear', 'nearest');
+W = zeros(Ns,Nn);
+for k = 1:Nn
+    e_k = zeros(Nn,1);
+    e_k(k) = 1;
+    F_w.Values = e_k;
+    W(:,k) = F_w(ysave,xsave);
+end
+
 %****hs along countour
-F_hs = scatteredInterpolant(lon, lat, hs_idx(:,1), 'linear', 'nearest');
-for t = 1:size(hs_idx,2) %loop over each hour    
-    F_hs.Values = hs_idx(:,t);% Hs values at the current hour
-    % Interpolate current hour value onto target coordinates
-    hs_int(:,t) = F_hs(ysave,xsave);
-    if rem(t,100)==0
-        t
-    end
+hs_int = W*hs_idx; %nodes vs. time
+for t = find(any(isnan(hs_idx),1))
+    F_w.Values = hs_idx(:,t);
+    hs_int(:,t) = F_w(ysave,xsave);
 end
 
 hs_int_m = hs_int'; %time vs. nodes
@@ -107,17 +122,13 @@ ncwrite(input_nc,'point_hm0',hs_int_m);
 u = cosd(dpm_idx);
 v = sind(dpm_idx);
 
-Fu = scatteredInterpolant(lon,lat,u(:,1),'linear','nearest');
-Fv = scatteredInterpolant(lon,lat,v(:,1),'linear','nearest');
-
-for it = 1:size(dpm_idx,2)
-    Fu.Values = u(:,it);
-    Fv.Values = v(:,it);
-    u_int(:,it) = Fu(ysave,xsave);
-    v_int(:,it) = Fv(ysave,xsave);
-    if rem(it,100)==0
-        it
-    end
+u_int = W*u;
+v_int = W*v;
+for it = find(any(isnan(u),1) | any(isnan(v),1))
+    F_w.Values = u(:,it);
+    u_int(:,it) = F_w(ysave,xsave);
+    F_w.Values = v(:,it);
+    v_int(:,it) = F_w(ysave,xsave);
 end
 dpm_int = mod(atan2d(v_int,u_int),360);
 dpm_int_m = dpm_int';
@@ -128,14 +139,10 @@ nccreate(input_nc,'point_wavdir', ...
 ncwrite(input_nc,'point_wavdir',dpm_int_m);
 
 %***wave period along countour
-F_p = scatteredInterpolant(lon, lat, tps_idx(:,1), 'linear', 'nearest');
-for pt = 1:size(tps_idx,2) %loop over each hour    
-    F_p.Values = tps_idx(:,pt);% Hs values at the current hour
-    % Interpolate current hour value onto target coordinates
-    tps_int(:,pt) = F_p(ysave,xsave);
-    if rem(pt,100)==0
-        pt
-    end
+tps_int = W*tps_idx;
+for pt = find(any(isnan(tps_idx),1))
+    F_w.Values = tps_idx(:,pt);
+    tps_int(:,pt) = F_w(ysave,xsave);
 end
 tps_int_m = tps_int';
 nccreate(input_nc,'point_tp', ...

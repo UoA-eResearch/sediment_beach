@@ -78,43 +78,52 @@ function [WAVE]=wave_breakingheight(WAVE,TRANSP)
     end
     
     if ~strcmpi(TRANSP.trform,'RAY') && ~strcmpi(TRANSP.trform,'CERC') && ~strcmpi(TRANSP.trform,'CERC2')
-        for i=1:length(WAVE.dPHItdp)   
+        % Vectorised over all coastline points: each point follows exactly the
+        % same secant iteration as the former per-point loop, but points that
+        % have converged are masked out instead of being handled one by one.
+        TP=WAVE.TP(:)';
+        HStdp=WAVE.HStdp(:)';
+        gamma=WAVE.gamma;
+        [~,ctdp,~,ntdp]=get_disper(WAVE.dnearshore,TP);
+        cosPHI=max(cosd(WAVE.dPHItdp(:)'),eps);
+        sinPHI=sind(WAVE.dPHItdp(:)');
         
-            [~,ctdp,~,ntdp]=get_disper(WAVE.dnearshore,WAVE.TP(i));
-            cosPHI=max(cosd(WAVE.dPHItdp(i)),eps);
-            sinPHI=sind(WAVE.dPHItdp(i));
-            iter=1; % First estimate: Hbr=WAVE.HStdp
-            hbr1=max(WAVE.HStdp(i)./WAVE.gamma,eps);
-            [hbr2,dPHIbr0,err1,cbr0,nbr0]=wave_shoalref(hbr1,WAVE.TP(i),WAVE.gamma,WAVE.HStdp(i),ctdp,ntdp,sinPHI,cosPHI);
-            hbr2b=max(hbr2,eps);
-            iter=2; % Second estimate: fill in hbr2
-            [hbr3,dPHIbr0,err2,cbr0,nbr0]=wave_shoalref(hbr2b,WAVE.TP(i),WAVE.gamma,WAVE.HStdp(i),ctdp,ntdp,sinPHI,cosPHI);
-            
-            if abs(err2)<eps
-                hbrnew=hbr3;
-                errnew=err2;
-            else
-                for iter=3:10 % Following estimates: inter/extrapolate from last two WAVE.hbr/err pairs
-                    hbrnew=max(hbr1-err1*(hbr2-hbr1)/(err2-err1),eps);
-                    [hbrest,dPHIbr0,errnew,cbr0,nbr0]=wave_shoalref(hbrnew,WAVE.TP(i),WAVE.gamma,WAVE.HStdp(i),ctdp,ntdp,sinPHI,cosPHI);
-                    if abs(errnew)>eps
-                        hbr1=hbr2;err1=err2;
-                        hbr2=hbrnew;err2=errnew;
-                    else
-                        break
-                    end
-                end
+        % First estimate: Hbr=WAVE.HStdp
+        hbr1=max(HStdp./gamma,eps);
+        [hbr2,~,err1]=wave_shoalref_vec(hbr1,TP,gamma,HStdp,ctdp,ntdp,sinPHI,cosPHI);
+        hbr2b=max(hbr2,eps);
+        
+        % Second estimate: fill in hbr2
+        [hbr3,dPHIbr0,err2,cbr0,nbr0]=wave_shoalref_vec(hbr2b,TP,gamma,HStdp,ctdp,ntdp,sinPHI,cosPHI);
+        hbrnew=hbr3;
+        
+        % Following estimates: inter/extrapolate from last two WAVE.hbr/err pairs
+        act=find(~(abs(err2)<eps));
+        for iter=3:10
+            if isempty(act)
+                break
             end
-            
-            %disp([num2str(PHI(iphi),'%4.1f'),' ',num2str(iter,'%4i'),' ',num2str(hbrnew,'%4.2f'),' ',num2str(errnew,'%6.4f')])
-            hbrnew(isnan(hbrnew))=0;
-            WAVE.HSbr(i)=hbrnew*WAVE.gamma;
-            WAVE.dPHIbr(i)=dPHIbr0;
-            WAVE.dPHIbr(isnan(WAVE.dPHIbr))=0;
-            WAVE.hbr(i)=hbrnew;
-            WAVE.cbr(i)=cbr0;
-            WAVE.nbr(i)=nbr0;
+            hn=max(hbr1(act)-err1(act).*(hbr2(act)-hbr1(act))./(err2(act)-err1(act)),eps);
+            [~,dPHIa,erra,cbra,nbra]=wave_shoalref_vec(hn,TP(act),gamma,HStdp(act),ctdp(act),ntdp(act),sinPHI(act),cosPHI(act));
+            hbrnew(act)=hn;
+            dPHIbr0(act)=dPHIa;
+            cbr0(act)=cbra;
+            nbr0(act)=nbra;
+            cont=abs(erra)>eps;
+            ac=act(cont);
+            hbr1(ac)=hbr2(ac); err1(ac)=err2(ac);
+            hbr2(ac)=hn(cont); err2(ac)=erra(cont);
+            act=ac;
         end
+        
+        hbrnew(isnan(hbrnew))=0;
+        dPHIbr0(isnan(dPHIbr0))=0;
+        sz=size(WAVE.dPHItdp);
+        WAVE.HSbr=reshape(hbrnew*gamma,sz);
+        WAVE.dPHIbr=reshape(dPHIbr0,sz);
+        WAVE.hbr=reshape(hbrnew,sz);
+        WAVE.cbr=reshape(cbr0,sz);
+        WAVE.nbr=reshape(nbr0,sz);
            
     else 
         % in case TRANSP.trform is 'RAY', 'CERC' or 'CERC2'
@@ -126,4 +135,19 @@ function [WAVE]=wave_breakingheight(WAVE,TRANSP)
         WAVE.nbr=nbr;
     end
     
+end
+
+function [hbrnew,dPHIbr,err,cbr,nbr]=wave_shoalref_vec(hbr,tper,gamma,hstdp,ctdp,ntdp,sinPHIw,cosPHIw)
+% Element-wise (vectorised) version of wave_shoalref with identical branching.
+    [~,cbr,~,nbr]=get_disper(hbr,tper);
+    dPHIbr=acosd(cosPHIw);   % default: input wave angle (very oblique incidence)
+    hstdpbr=hstdp;
+    in1=abs(cbr./ctdp.*sinPHIw)<1;
+    dPHIbr(in1)=asind(cbr(in1)./ctdp(in1).*sinPHIw(in1));
+    cosbr=cosd(dPHIbr);
+    in2=in1 & (nbr.*cbr.*cosbr)>0 & abs(cosbr)>1e-3;
+    hstdpbr(in2)=hstdp(in2).*sqrt(ntdp(in2).*ctdp(in2).*cosPHIw(in2)./(nbr(in2).*cbr(in2).*cosbr(in2)));
+    dPHIbr(in1 & ~in2)=acosd(cosPHIw(in1 & ~in2));
+    hbrnew=hstdpbr/gamma;
+    err=hbrnew-hbr;
 end
