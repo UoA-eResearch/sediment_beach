@@ -1,0 +1,20 @@
+# Large animations
+*.avi
+
+# Large CSV datasets
+joaos_Data/Joao_stations/hindcast/*.csv
+
+# MATLAB temporary files
+*.asv
+
+# Images / figures
+*.png
+
+# Logs
+logfile.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+
+
