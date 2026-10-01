@@ -19,6 +19,9 @@ python create_nc.py                            # rebuild the wave input (to pyth
 python -m pytest tests                         # tests against GNU Octave results
 ```
 
+The reference data in `tests/data/` (`.mat`) are stored with Git LFS, like the
+other data files.
+
 ## Scope of the ShorelineS port
 
 ShorelineS is ~18,000 lines of MATLAB with many optional processes. The port
@@ -68,7 +71,41 @@ NumPy's SIMD `exp`/`pow`/`atan2`/… can differ from glibc's libm (used by
 Octave) in the last bit. With `SHORELINES_EXACT_LIBM=1` the port calls libm
 instead (slower). This is only needed for bit-level comparisons.
 
-RESULTS_PLACEHOLDER
+**Against the real MATLAB run.** `30_sept_int_w/output.mat` is a run of the
+same configuration made in MATLAB (output up to 2004-03-10). Over those
+4 years and 2 months the Python coastline uses the same grid at every stored
+time, and positions differ by at most 1e-7 m (median 9e-10 m in cross-shore
+distance). There is no drift.
+
+## Runtime
+
+Same 4-core machine, each run alone, GNU Octave 8.4 vs. Python 3.11 /
+NumPy 2.4:
+
+| | Octave, original MATLAB code | Octave, optimised MATLAB code | Python |
+|---|---:|---:|---:|
+| Model, 2 days (17 steps) | 171.0 s | 52.4 s | 0.9 s |
+| Model, 6 days (49 steps) | 455.3 s | 104.3 s | 2.1 s |
+| Model, 30 days (241 steps) | – | 369.8 s | 9.0 s |
+| Model, per time step | 8.9 s | 1.4–1.6 s | 0.035 s |
+| **Model, full 2000–2024 (73,041 steps)** | ≈ 180 h (est.) | ≈ 30 h (est.) | **43.9 min (measured)** |
+| `project_output`, 9,131 daily coastlines | ≈ 2.1 h (est.) | 26.5 s | 25.8 s |
+| `initial_grid` | – | – | 4.8 s |
+| `create_nc` | – | – | 6 s |
+
+Runtime does not depend on the number of CPUs: the time loop is sequential,
+and the per-step arrays are too small for multithreaded BLAS (measured: same
+time on 1 and 3 cores).
+
+**Why Python is faster:** most of the difference comes from interpreter
+overhead. The MATLAB model calls small functions hundreds of thousands of
+times per simulated day (`sind`, `interp1`, `unique`, and `get_intersections`
+for every coastline point in `find_shadows_mc` / `find_overwash_mc`), and
+Octave, which has no JIT, pays 10–100 µs per call. The port batches these
+(e.g. all shadow rays at once: 276 ms per call in Octave vs. 3 ms in Python).
+Where both versions are vectorised (`project_output`), they run at the same
+speed. MATLAB's JIT should make the MATLAB code considerably faster than in
+Octave; MATLAB was not available to measure it.
 
 ## Things found while porting
 
