@@ -230,46 +230,36 @@ def get_polydistance(Xr, Yr, Xc, Yc, Lcrit=500.0, nargout=3):
         Lxy = np.sqrt(dx2 * dx2 + dy2 * dy2)
         Xn = np.stack([Xr - Lcrit / Lxy * dy2, Xr + Lcrit / Lxy * dy2], axis=1)
         Yn = np.stack([Yr + Lcrit / Lxy * dx2, Yr - Lcrit / Lxy * dx2], axis=1)
-    nseg = Xc.size - 1
-    if nseg >= 1:
-        xj = Xc[:-1][None, :]
-        yj = Yc[:-1][None, :]
-        dxc = (Xc[1:] - Xc[:-1])[None, :]
-        dyc = (Yc[1:] - Yc[:-1])[None, :]
-        jxmin = np.fmin(Xc[:-1], Xc[1:])[None, :]
-        jxmax = np.fmax(Xc[:-1], Xc[1:])[None, :]
-        jymin = np.fmin(Yc[:-1], Yc[1:])[None, :]
-        jymax = np.fmax(Yc[:-1], Yc[1:])[None, :]
-        nchunk = max(1, int(2e6 // nseg))
-        for i0 in range(0, nr, nchunk):
-            ii = np.arange(i0, min(i0 + nchunk, nr))
-            xi = Xn[ii, 0][:, None]
-            yi = Yn[ii, 0][:, None]
-            dx1 = Xn[ii, 1][:, None] - xi
-            dy1 = Yn[ii, 1][:, None] - yi
-            xc, yc = _pair_crossings(xi, yi, dx1, dy1, xj, yj, dxc, dyc,
-                                     np.fmin(xi, Xn[ii, 1][:, None]), np.fmax(xi, Xn[ii, 1][:, None]),
-                                     np.fmin(yi, Yn[ii, 1][:, None]), np.fmax(yi, Yn[ii, 1][:, None]),
-                                     jxmin, jxmax, jymin, jymax)
-            valid = ~np.isnan(xc)
+    if Xc.size >= 2:
+        # normals as segments A, coastline segments B; only pairs whose bounding
+        # boxes overlap (plus NaN-adjacent ones) can cross
+        x1, y1, x2, y2 = Xn[:, 0], Yn[:, 0], Xn[:, 1], Yn[:, 1]
+        A = dict(x=x1, y=y1, dx=x2 - x1, dy=y2 - y1, xmin=np.fmin(x1, x2), xmax=np.fmax(x1, x2),
+                 ymin=np.fmin(y1, y2), ymax=np.fmax(y1, y2), nan=np.isnan(x1 + x2 + y1 + y2))
+        B = _seg_arrays(Xc, Yc)
+        ia, ib = _candidate_pairs(A, B)
+        xc, yc = _crossings_of_pairs(A, B, ia, ib)
+        ok = ~np.isnan(xc)
+        ia, ib, xc, yc = ia[ok], ib[ok], xc[ok], yc[ok]
+        if ia.size:
+            dx1, dy1 = A["dx"][ia], A["dy"][ia]
             with np.errstate(invalid="ignore", divide="ignore"):
-                ui = ((xc - xi) * dx1 + (yc - yi) * dy1) / (dx1 * dx1 + dy1 * dy1)
+                ui = ((xc - A["x"][ia]) * dx1 + (yc - A["y"][ia]) * dy1) / (dx1 * dx1 + dy1 * dy1)
             ui = np.fmin(np.fmax(ui, 0.0), 1.0)
-            umin_a = np.where(valid, ui, np.inf)
-            jmin = np.argmin(umin_a, axis=1)
-            umin = umin_a[np.arange(ii.size), jmin]
-            has = np.isfinite(umin)
-            rows = np.flatnonzero(has)
-            xcr[ii[has]] = xc[rows, jmin[has]]
-            ycr[ii[has]] = yc[rows, jmin[has]]
-            dmin[ii[has]] = (0.5 - umin[has]) * Lcrit * 2
+            # per normal: smallest ui (first coastline segment on ties, as argmin)
+            order = np.lexsort((ib, ui, ia))
+            first = order[np.concatenate([[True], ia[order][1:] != ia[order][:-1]])]
+            rows = ia[first]
+            xcr[rows] = xc[first]
+            ycr[rows] = yc[first]
+            dmin[rows] = (0.5 - ui[first]) * Lcrit * 2
             if nargout > 3:
-                umax_a = np.where(valid, ui, -np.inf)
-                jmax = np.argmax(umax_a, axis=1)
-                umax = umax_a[np.arange(ii.size), jmax]
-                xcm[ii[has]] = xc[rows, jmax[has]]
-                ycm[ii[has]] = yc[rows, jmax[has]]
-                dmax[ii[has]] = (0.5 - umax[has]) * Lcrit * 2
+                order = np.lexsort((ib, -ui, ia))
+                first = order[np.concatenate([[True], ia[order][1:] != ia[order][:-1]])]
+                rows = ia[first]
+                xcm[rows] = xc[first]
+                ycm[rows] = yc[first]
+                dmax[rows] = (0.5 - ui[first]) * Lcrit * 2
     if nargout > 3:
         return dmin, xcr, ycr, dmax, xcm, ycm
     return dmin, xcr, ycr

@@ -42,6 +42,8 @@ no `readtable`, `projcrs`/`projfwd` or `scatteredInterpolant`.
 
 ## Quick start
 
+(For the Python version, see [python/README.md](python/README.md).)
+
 ```matlab
 % from the repository root, in MATLAB
 git lfs pull                  % (in a shell) fetch the data files once
@@ -138,10 +140,17 @@ so start-up work (reading the 168 MB NetCDF, first plot) cancels out.
 
 | Run (Octave 8.4, model only, no per-step plotting) | Original | Optimised | Speed-up |
 |---|---:|---:|---:|
-| 2 simulated days (17 steps), total | 164.7 s | 54.5 s | 3.0× |
-| 6 simulated days (49 steps), total | 455.4 s | 106.4 s | 4.3× |
-| **Marginal cost per 3-hour time step** | **9.08 s** | **1.62 s** | **5.6×** |
-| Extrapolated full 2000–2024 hindcast (73,040 steps) | ≈ 184 h (7.7 days) | ≈ 33 h (1.4 days) | 5.6× |
+| 2 simulated days (17 steps), total | 171.0 s | 52.4 s | 3.3× |
+| 6 simulated days (49 steps), total | 455.3 s | 104.3 s | 4.4× |
+| 30 simulated days (241 steps), total | – | 369.8 s | |
+| **Marginal cost per 3-hour time step** | **8.9 s** | **1.4–1.6 s** | **≈ 6×** |
+| Extrapolated full 2000–2024 hindcast (73,040 steps) | ≈ 180 h (7.5 days) | ≈ 30 h | ≈ 6× |
+
+Each run was timed alone on the machine. A run uses one core: runtime does
+not change with the number of CPUs, because every time step depends on the
+previous one and the arrays per step (~600 coastline points) are too small
+for multithreading. More cores only help to run several simulations at once.
+For the [Python port](python/README.md), see the end of this section.
 
 Plotting adds to that. With the original `hindcast_run.m` setting (plot and
 grab a video frame every step), each plotted step cost a further **≈ 8.9 s**
@@ -151,8 +160,8 @@ With `S.plotinterval = 240`, plotting happens about 300 times per run.
 
 | Component (Octave) | Original | Optimised | Speed-up |
 |---|---:|---:|---:|
-| `get_polydistance`, 609 normals vs. 650-point coastline | 0.78 s/call | 0.02 s/call | 38× |
-| ↳ `project_output.m` daily loop (≈ 9,700 calls) | ≈ 2.1 h | ≈ 3.3 min | 38× |
+| `get_polydistance`, 609 normals vs. 650-point coastline | 0.78 s/call | 0.006 s/call | 131× |
+| ↳ `project_output.m`, full 9,131-day CoastSat series | ≈ 2.1 h (estimated) | 26.5 s (measured) | ≈ 280× |
 | `wave_breakingheight`, 5,000 points | 2.93 s | 0.021 s | ≈ 140× |
 | `get_intersections`, coastline vs. short line (300 calls) | 0.37 s | 0.11 s | 3.3× |
 
@@ -183,12 +192,47 @@ bit-for-bit equal). Transport differs only at floating-point round-off level
 | `ShorelineS_functions/wave_breakingheight.m` | The per-point secant iteration is vectorised over all points: points that have converged are masked out, and a vectorised `wave_shoalref_vec` does exactly the same branching as `wave_shoalref`. | ~140× faster for 5,000 points. Results equal to ≤ 4·10⁻¹⁵ (round-off). |
 | `ShorelineS_functions/get_intersections.m` | Implicit expansion replaces the ~26 full-size `repmat` copies. Only segments whose bounding box can reach the other polyline are evaluated (NaN-adjacent segments are always kept, so even the original's edge cases stay the same). The `ui`/`uj` loop is vectorised. | Same crossings, indices and coordinates on 3,000 random cases. The fractions `ui`/`uj` occasionally differ by 1 ulp (≤ 9·10⁻¹⁶). ~3× faster for the model's typical coastline-vs-short-line calls. |
 | `ShorelineS_functions/introduce_wave.m` | `length(unique(t))>1` becomes `any(t~=t(1))`. Each station is interpolated on the 2 time points around `tnow` (the result is the same for a strictly increasing time axis; otherwise it falls back to the full series). All stations are then interpolated in one `interp1` call per parameter. | Bit-identical output. |
-| `ShorelineS_functions/get_polydistance.m` | All normals are intersected with the coastline at once (chunked to cap memory), using the same crossing arithmetic. | Bit-identical on the stored model output. ≤ 10⁻¹³ m on random polylines. **38× faster.** This speeds up `project_output.m` (≈ 9,700 calls over the daily CoastSat series) and `save_shorelines`. |
+| `ShorelineS_functions/get_polydistance.m` | All normals are intersected with the coastline at once. Only (normal, segment) pairs whose bounding boxes overlap are evaluated, with the same crossing arithmetic. | Bit-identical on the stored model output. ≤ 10⁻¹³ m on random polylines. **131× faster.** This speeds up `project_output.m` (≈ 9,700 calls over the daily CoastSat series) and `save_shorelines`. |
+| `ShorelineS_functions/get_Sphimax.m` | The warning state is saved and restored around the 3×3 solves, instead of `warning off`/`warning on` inside the per-point loop. The blanket `warning on` switched on every warning for the rest of the run (in Octave that printed ~500,000 broadcasting notices per 6 simulated days). | Same results; no warning flood. |
 | `ShorelineS_functions/make_video.m` | Drops empty frames before `writeVideo`. With `plotinterval>1`, frames are stored at `V(it+1)`, which leaves gaps, and the `try` around `writeVideo` used to swallow the error, so no video was written. | Video works with `plotinterval>1`. |
 | `hindcast_run.m` | `S.plotinterval = 240` (one frame per 30 days instead of per 3-hour step). The hard-coded `C:\Users\...` `addpath` becomes a path relative to the script. | Avoids ~73,000 figure redraws, and a video frame array that would need hundreds of GB of memory for the full 25-year run. **This changes the animation**: one frame per 30 days. Set `S.plotinterval=1` for the original behaviour. |
 | `create_nc.m` | Interpolation is linear in the node values, so a 94 × 48 weight matrix is built once and each field becomes one matrix product, instead of a `scatteredInterpolant` evaluation for every hour (3 × ~74,000 evaluations) into arrays that grew inside the loop. Hours with missing node values fall back to the original per-hour interpolation. | Same values (≤ 10⁻¹⁵, checked with an equivalent SciPy implementation). Removes the ~220,000 interpolant evaluations and the quadratic array growth. |
 | `initial_grid.m` | Only the *Intersect points* columns that are actually used (the transects removed from the PCA) are parsed cell by cell and projected, instead of every cell in the sheet. | For beaches `[2 3]`, parses 159 of 609 columns (26 %). Same output. |
 | `project_output.m` | One vectorised `movmean(..., 2, 'omitnan')` replaces the per-transect loop. | Same output. |
+
+### Python port vs. Octave
+
+`python/` contains a Python port of the workflow (see
+[python/README.md](python/README.md)). Same machine, each run alone:
+
+| | Octave, original | Octave, optimised | Python |
+|---|---:|---:|---:|
+| Model, 2 days (17 steps), total | 171.0 s | 52.4 s | 0.9 s |
+| Model, 6 days (49 steps), total | 455.3 s | 104.3 s | 2.1 s |
+| Model, 30 days (241 steps), total | – | 369.8 s | 9.0 s |
+| **Model, cost per time step** | **8.9 s** | **1.4–1.6 s** | **0.035 s** |
+| `project_output`, full 9,131-day series | ≈ 2.1 h (est.) | 26.5 s | 25.8 s |
+| `initial_grid` (beaches 2, 3) | – ¹ | – ¹ | 4.8 s |
+| `create_nc` | – ¹ | – ¹ | 6 s |
+
+¹ Needs `readtable`, `projcrs`/`projfwd` or `scatteredInterpolant`, which
+Octave does not have.
+
+FULLRUN_PLACEHOLDER
+
+**Why Python is faster for the model but not for `project_output`.** The
+MATLAB model code makes hundreds of thousands of small function calls per
+simulated day (`sind`, `interp1`, `unique`, and per-coastline-point calls of
+`get_intersections` in `find_shadows_mc` and `find_overwash_mc`). Octave has
+no JIT compiler, so each call costs 10–100 µs of interpreter overhead, which
+dominates the run time. The Python port does the same arithmetic in batched
+NumPy operations: for example, all shadow rays of a coastline section are
+tested in one call (276 ms per call in Octave, 3 ms in Python). In
+`project_output` both versions are vectorised and spend their time in
+compiled array code, so they run at the same speed. MATLAB's JIT makes
+function calls and loops much cheaper than Octave's interpreter, so the gap to
+MATLAB will be smaller than the gap to Octave (MATLAB was not available to
+measure it).
 
 ### Reproducing
 
@@ -223,6 +267,12 @@ In Octave: `pkg load netcdf`, and run headless with
   (52 storage times), so that run probably did not finish the full period.
 - `make_video.m` writes `[S.outputdir,'\animation']` with a Windows path
   separator.
+- **First CoastSat image skipped.** `initial_grid.m` reads `Range B2:KH517`
+  with `readtable`, which uses the first row of the range (row 2, the image
+  of 1999-09-29) as variable names. The transects that are not in the PCA are
+  therefore held at the position of the *second* image. (The Python port
+  confirmed this: it reproduces the stored initial coastline only with this
+  behaviour.)
 - `create_nc.m` fails if `input_25_contour.nc` already exists (`nccreate`
   does not overwrite).
 - The ShorelineS default `S.plotinterval = 1` combined with `S.video = 1`
