@@ -300,9 +300,10 @@ class ShorelineS:
             cl.coastline_change(C, T, TIME)
 
         # PHASE 3: overwash, merging, cleanup
-        def seg_overwash(ii):
+        def seg_overwash(ii, with_i2=False):
             s = self._segment(ii)
-            return s["x"], s["y"], s["shadow"], s["PHI"], s["i1"], s["cyclic"]
+            out = (s["x"], s["y"], s["shadow"], s["PHI"], s["i1"], s["cyclic"])
+            return out + (s["i2"],) if with_i2 else out
 
         cl.find_overwash_mc(C, self.SPIT, TIME, seg_overwash)
         cl.get_transportpoints(C)                    # get_reconnectedgroynes (no groynes)

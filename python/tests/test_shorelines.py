@@ -106,3 +106,63 @@ def test_model_2days_matches_octave(tmp_path):
         np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
         scale = np.nanmax(np.abs(a))
         np.testing.assert_allclose(O[f], a, rtol=0, atol=1e-13 * scale, err_msg=f)
+
+
+# ---------------------------------------------------------------------------
+# Cyclic (closed) coastline sections
+def test_get_clockpoly_matches_octave():
+    """300 random polygons, both orientations, open and closed, computed with
+    get_clockpoly.m in GNU Octave."""
+    from shorelines.mfuncs import get_clockpoly
+    C = scipy.io.loadmat(os.path.join(DATA, "clockpoly_cases.mat"))["C"]
+    R = scipy.io.loadmat(os.path.join(DATA, "clockpoly_octave.mat"))["R"].ravel()
+    got = [get_clockpoly(C[k, 0].ravel(), C[k, 1].ravel()) for k in range(C.shape[0])]
+    np.testing.assert_array_equal(got, R)
+
+
+def test_overwash_closed_section_matches_octave():
+    """find_overwash_mc on a thin closed island whose first point is shadowed,
+    so that the first/last-point merge of closed sections is exercised."""
+    import shorelines.coastline as cl
+    from shorelines.mfuncs import get_cyclic, get_one_polygon, get_one_section
+    d = {k: v.ravel() for k, v in scipy.io.loadmat(os.path.join(DATA, "overwash_cyclic_case.mat")).items()
+         if not k.startswith("__")}
+    C = dict(x_mc=d["x_mc"].copy(), y_mc=d["y_mc"].copy(), n_mc=1, ds0=75.0)
+
+    def seg(ii, with_i2=False):
+        x, y, _, i1, i2 = get_one_polygon(C["x_mc"], C["y_mc"], ii)
+        _, PHI, _, _, _ = get_one_polygon(d["QS_mc"], d["PHIbr_mc"], ii)
+        out = (x, y, get_one_section(d["shadow_mc"], ii), PHI, i1, get_cyclic(x, y, 75.0))
+        return out + (i2,) if with_i2 else out
+
+    spit = dict(method="default", spitwidth=50.0, owscale=0.1, owtimescale=0.0, Dsf=8.0, Dbb=4.0, bheight=2.0)
+    cl.find_overwash_mc(C, spit, dict(dt=1 / (365 * 8)), seg)
+    ref = scipy.io.loadmat(os.path.join(DATA, "overwash_cyclic_octave.mat"))
+    np.testing.assert_array_equal(C["x_mc"], ref["x_mc"].ravel())
+    np.testing.assert_array_equal(C["y_mc"], ref["y_mc"].ravel())
+    assert C["y_mc"][0] == C["y_mc"][-1] != d["y_mc"][0]      # the closed ends moved together
+
+
+@pytest.mark.skipif(not _lfs_available(os.path.join(REPO, "input_25_contour.nc")),
+                    reason="Git LFS data not available")
+def test_model_cyclic_island_matches_octave(tmp_path):
+    """6 days (49 steps) with the two open beaches plus a thin closed island
+    (overwash active), compared with ShorelineS in GNU Octave 8.4, daily output."""
+    from shorelines import ShorelineS
+    c = scipy.io.loadmat(os.path.join(DATA, "cyclic_coastline_input.mat"))
+    S = dict(reftime="2000-01-01", endofsimulation="2000-01-07", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
+             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
+             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", boundaryconditionstart="periodic",
+             boundaryconditionend="periodic", d=10, dt=1 / (365 * 8), tc=0, storageinterval=1,
+             outputdir=str(tmp_path), suppresshighangle=0)
+    model = ShorelineS(S, verbose=False, save_output=False)
+    O = model.run()
+    assert np.nansum(model.COAST["cyclic_mc"]) == 1                 # one closed section
+    ref = scipy.io.loadmat(os.path.join(DATA, "octave_cyclic_6day_output.mat"), squeeze_me=False,
+                           struct_as_record=False)["O"][0, 0]
+    for f in ("x", "y", "x1", "y1", "distx", "n"):
+        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
+    for f in ("QS", "HSo", "PHIo", "TP", "PHI", "PHIbr", "dPHIbr", "PHIc", "PHIf"):
+        a = getattr(ref, f)
+        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
+        np.testing.assert_allclose(O[f], a, rtol=0, atol=1e-10 * np.nanmax(np.abs(a)), err_msg=f)

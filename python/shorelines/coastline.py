@@ -220,9 +220,14 @@ def get_foreshore_orientation(COAST):
         xq = COAST["xq"]
         yq = COAST["yq"]
         if COAST["cyclic"]:
-            raise NotImplementedError("cyclic coastline sections")
-        PHIfsmooth = mmod(get_smoothdata_angle(COAST["PHIc"]), 360)
-        idx = np.arange(nl)
+            # smooth the segment angles of three copies of the closed polygon so
+            # the smoothing wraps around; keep the middle copy (transport points 2..nl)
+            PHIf = get_smoothdata_angle(np.tile(COAST["PHIc"][1:-1], 3))
+            PHIfsmooth = mmod(PHIf[nl - 2:2 * nl - 3], 360)
+            idx = np.arange(1, nl)
+        else:
+            PHIfsmooth = mmod(get_smoothdata_angle(COAST["PHIc"]), 360)
+            idx = np.arange(nl)
         rows = np.stack([xq[idx], yq[idx], PHIfsmooth, PHIfsmooth], axis=1)
         if COAST["i_mc"] == 1:
             PHIf0 = rows
@@ -314,7 +319,8 @@ def coastline_change(COAST, TRANSP, TIME):
 def find_overwash_mc(COAST, SPIT, TIME, seg):
     """Overwash of narrow spits (find_overwash_mc.m, 'default' method).
 
-    ``seg(i_mc)`` returns the section data (x, y, shadow, PHI, i1, cyclic)."""
+    ``seg(i_mc)`` returns the section data (x, y, shadow, PHI, i1, cyclic), and
+    with ``with_i2=True`` also the index of its last point i2."""
     eps = 5.0
     x_mc = COAST["x_mc"]
     y_mc = COAST["y_mc"]
@@ -378,10 +384,18 @@ def find_overwash_mc(COAST, SPIT, TIME, seg):
             dyt[j0] = dn_back * (x_mc[j0 + 1] - x_mc[j0]) / ds_back * weight_j
             dxt[jp10] = -dn_back * (y_mc[jp10] - y_mc[j0]) / ds_back * weight_jp1
             dyt[jp10] = dn_back * (x_mc[jp10] - x_mc[j0]) / ds_back * weight_jp1
+    # closed sections: the first and last point are the same point, so they
+    # must move together (only applied when they would move apart and the
+    # first point is in the shadow, as in find_overwash_mc.m)
     for ii in range(1, COAST["n_mc"] + 1):
-        _, _, shadow, _, i1, cyclic = seg(ii)
+        _, _, shadow, _, i1, cyclic, i2 = seg(ii, with_i2=True)
         if cyclic:
-            raise NotImplementedError("cyclic coastline sections")
+            a, b = i1 - 1, i2 - 1
+            if m_hypot(dxt[a] - dxt[b], dyt[a] - dyt[b]) > 1 and shadow[0]:
+                sdx = dxt[a] + dxt[b]
+                sdy = dyt[a] + dyt[b]
+                dxt[a] = dxt[b] = sdx
+                dyt[a] = dyt[b] = sdy
     COAST["x_mc"] = x_mc + dxt
     COAST["y_mc"] = y_mc + dyt
     return COAST
