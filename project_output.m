@@ -120,10 +120,7 @@ xlabel('Time (yr)')
 
 nexttile
 window = round(30); 
-sm = NaN(size(zg_obs_d));
-for i = 1:size(zg_obs_d,1)
-    sm(i,:) = movmean(zg_obs_d(i,:), window, 'omitnan');
-end
+sm = movmean(zg_obs_d, window, 2, 'omitnan'); % moving mean along time for every transect
 imagesc(1:size(zg_model,2), 1:size(zg_model,1), sm)
 set(gca,'YDir','reverse')
 colorbar

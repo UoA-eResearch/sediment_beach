@@ -1,0 +1,20 @@
+task,implementation,seconds,kind,notes
+model_2days,"Octave, original MATLAB code",171.0,measured,17 time steps incl. start-up (data read and first figure)
+model_2days,"Octave, optimised MATLAB code",52.4,measured,17 time steps incl. start-up
+model_2days,Python port,0.9,measured,17 time steps incl. start-up
+model_6days,"Octave, original MATLAB code",455.3,measured,49 time steps incl. start-up
+model_6days,"Octave, optimised MATLAB code",104.3,measured,49 time steps incl. start-up
+model_6days,Python port,2.1,measured,49 time steps incl. start-up
+model_30days,"Octave, optimised MATLAB code",369.8,measured,241 time steps incl. start-up
+model_30days,Python port,9.0,measured,241 time steps incl. start-up
+model_per_step,"Octave, original MATLAB code",8.9,measured,marginal cost (6-day minus 2-day run)
+model_per_step,"Octave, optimised MATLAB code",1.5,measured,marginal cost (1.4-1.6 s depending on period)
+model_per_step,Python port,0.036,measured,full hindcast / 73041 steps
+model_full_hindcast,"Octave, original MATLAB code",650000,estimated,8.9 s x 73041 steps
+model_full_hindcast,"Octave, optimised MATLAB code",108000,estimated,1.48 s x 73041 steps
+model_full_hindcast,Python port,2631.2,measured,2000-01-01 to 2024-12-30 (73041 steps)
+project_output_full,"Octave, original MATLAB code",7600,estimated,0.78 s per get_polydistance call x ~9742 calls
+project_output_full,"Octave, optimised MATLAB code",26.5,measured,9131 daily + 2 x 305 monthly projections
+project_output_full,Python port,25.8,measured,9131 daily + 2 x 305 monthly projections
+initial_grid,Python port,4.8,measured,beaches 2 and 3 (readtable/projcrs not available in Octave)
+create_nc,Python port,6.1,measured,94 stations x 74265 times (scatteredInterpolant not available in Octave)
