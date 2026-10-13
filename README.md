@@ -166,15 +166,86 @@ the transects whose observations are held at a single CoastSat position.
   by 2024, of which −100 to −145 m happens in the first ~2.5 years. These
   stretches (beach 2 transects 1–60, beach 3 transects 1–38) are exactly the
   ones left out of the PCA, so the observations cannot confirm or refute this.
-  A fast initial adjustment at the section ends suggests a boundary or
-  initial-orientation effect rather than a real trend. Both sections use
-  `periodic` boundary conditions, which feed the transport leaving one end
-  of a beach into the other end. That is worth checking before calibrating.
-- **CoastSat shows coherent, beach-wide events** (for example erosion around
-  2009 and 2011, and accretion in 2019–2020 and 2023–2024). The model's
-  long-term divergence is much larger than these signals, so at this
-  calibration their timing cannot be compared. After calibration, the
-  30-day-mean panels are the natural comparison.
+  The erosion is part of the reshaping of the whole beach described below:
+  sand moves from the west ends to the middle of each beach.
+- **The model does not follow CoastSat's ups and downs over time.** CoastSat
+  shows beach-wide erosion and accretion (for example erosion around 2009 and
+  2011, and accretion in 2019–2020 and 2023–2024) and a clear seasonal cycle.
+  The model shows none of this. The next section explains why.
+
+### Why ShorelineS does not reproduce the CoastSat pattern
+
+The two panels of the cross-shore change figure show different kinds of
+change. CoastSat/PCA is dominated by the whole beach moving seaward and
+landward together. The model, as set up here, can only move sand along each
+beach, so it shows a slow reshaping of the coastline instead. The numbers
+below are for the transects with real observations (in the PCA), from
+`python/compare_model_coastsat.py`.
+
+1. **The observed change is mostly the whole beach moving together.** The
+   beach-average position explains 82 % (beach 2) and 76 % (beach 3) of the
+   CoastSat/PCA variance over time: the vertical stripes in the lower panel.
+2. **The model cannot move a whole beach seaward or landward.** In ShorelineS
+   the coastline changes only through gradients in longshore transport
+   (−dQs/ds per unit profile height). With `periodic` boundaries the
+   transport leaving one end of a beach re-enters at the other end, and no
+   source or sink of sand is active here: no cross-shore exchange, sea-level
+   rise, nourishments or rivers. Each beach therefore keeps its sand volume.
+   The model's beach-average position (all transects) varies by only 0.25 m
+   (beach 2) and 1.0 m (beach 3) over 25 years, against a standard deviation
+   of 9.7 and 8.4 m in CoastSat. The model can only redistribute sand along
+   each beach.
+3. **What the model does show is a slow reshaping of the coastline.** The
+   horizontal bands in the upper panel arise because the initial 1999
+   coastline is not in equilibrium with the modelled wave climate. The model
+   gradually turns the coastline towards it: the west ends feed the middle of
+   each beach, and the trend continues for the whole 25 years. With
+   uncalibrated transport (`qscal = 1`) this reaches tens to hundreds of
+   metres. Shorter-term variability (detrended, time scales under ~2 years)
+   is tiny by comparison: 0.2–0.5 m in the model against 7.2–7.3 m in
+   CoastSat. The correlation with CoastSat is 0.07–0.08 per transect and
+   0.11–0.18 for the beach average.
+4. **Most of the observed beach-wide signal is a seasonal cycle of unknown
+   cause.**
+   - **The cycle.** Both beaches are 5–7 m wider than average in May–July
+     and 4–8 m narrower in December–January (12–15 m peak to peak). The
+     cycle is also in the raw CoastSat positions (`Intersects` sheet), so
+     the PCA does not create it.
+   - **Not the average wave conditions.** At the 25 m contour the monthly
+     mean waves hardly change through the year: Hs 0.75–0.97 m, Tp
+     8.6–9.9 s, direction 42–50°.
+   - **Not tide sampling.** The tide at image time is itself seasonal
+     (+0.13 to +0.21 m in January–April, −0.04 to −0.10 m in June–July). But
+     the positions are already tide-corrected: they correlate weakly
+     *positively* with the tide (+0.15 to +0.22), where an uncorrected
+     waterline would correlate negatively. Removing the tide-related part
+     leaves the cycle unchanged.
+   - **Opposite to the storm season.** Waves above 2 m occur 13–16 % of the
+     time in June–July and 3–4 % in November–December, so the beaches are
+     widest when storms are most frequent. That is the reverse of the usual
+     storm-erosion-and-recovery cycle.
+
+   The cycle is therefore not driven by anything in the wave input. Possible
+   causes, which the data in this repository cannot separate:
+   - seasonal mean sea level (CoastSat's tide correction covers only the
+     astronomical tide);
+   - winds and wind-blown sand;
+   - satellite or processing effects (sun angle, wet sand).
+
+**What it would take for model and observations to be comparable:**
+
+- **Seasonal and event-scale change.** The model needs a cross-shore
+  process: a sediment source or sink, or an equilibrium shoreline model
+  coupled to the longshore transport. Even then, the seasonal cycle needs
+  forcing beyond the current wave file, and its cause should be established
+  first.
+- **The long-term pattern.** Calibrate the transport (`qscal`) and the active
+  profile height (`d`), and reconsider the `periodic` boundaries. The beaches
+  are separate embayments, so closed ends, or ends with a prescribed
+  transport, are probably more realistic.
+- **Spin-up.** Start from a coastline closer to equilibrium with the wave
+  climate, or discard the first years, so that the comparison is not
+  dominated by the initial reshaping.
 
 Wave forcing along the 25 m contour, 1999–2024 (`plot_waves`):
 
