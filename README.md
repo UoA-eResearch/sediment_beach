@@ -285,6 +285,22 @@ CSV or JSON file (`--runs`). See
 `run_ensemble.m` is the MATLAB equivalent (`parfor`, Parallel Computing
 Toolbox).
 
+On a 4-CPU machine, 4 runs of 1999–2004 took 722 s together, against 693 s
+for one run alone ([summary](results/ensemble_1999-2004_summary.csv)):
+
+| `qscal` | waves | RMSE vs CoastSat | mean \|change\| at the end |
+|---:|---|---:|---:|
+| 0.5 | synthetic (`sinthe_waves.nc`) | 31.0 m | 20.8 m |
+| 0.5 | hindcast (`input_25_contour.nc`) | 43.7 m | 33.0 m |
+| 1 | synthetic | 60.4 m | 47.3 m |
+| 1 | hindcast | 74.1 m | 71.6 m |
+
+(`python/hindcast_run.py` settings: closed boundaries, `d50 = 1e-4`,
+`gamma = 0.5`.) With the synthetic waves, beaches 2 and 3 merge on
+2002-06-10. With these settings the modelled coastline moves much more than
+the observed one; the correlation with CoastSat is ≈ 0.03–0.04 in all four
+runs.
+
 ## Performance
 
 ### How it was measured

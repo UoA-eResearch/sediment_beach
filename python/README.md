@@ -73,6 +73,12 @@ qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
 From Python: `run_ensemble.run_ensemble([{"qscal": 0.5}, {"qscal": 2}], "out", jobs=2)`
 returns the summary rows.
 
+**Measured** (4-CPU machine): 4 runs of 1999-08-01 to 2004-06-30 (14,361 steps
+each; `qscal` 0.5 and 1 × synthetic and hindcast waves) with `-j 4` took
+722 s in total. One of these runs alone takes 693 s, so the four cost about
+the time of one: 3.3× faster than running them one after another. The
+summary is in [`results/ensemble_1999-2004_summary.csv`](../results/ensemble_1999-2004_summary.csv).
+
 In MATLAB, `run_ensemble.m` does the same with `parfor`, which needs the
 Parallel Computing Toolbox (start a pool with `parpool(n)`); without it the
 loop runs serially:
