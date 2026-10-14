@@ -236,3 +236,23 @@ def test_ensemble_runs_in_parallel(tmp_path):
     assert [s["param_qscal"] for s in summary] == ["0.5", "2"]
     # larger qscal, more coastline change
     assert rows[1]["model_mean_abs_change_end_m"] > rows[0]["model_mean_abs_change_end_m"]
+
+
+def test_merge_crossing_sections_matches_octave():
+    """merge_coastlines_mc on 400 random pairs of crossing sections (two open
+    beaches, a beach and an island in either order, two islands, wavy lines
+    crossing many times), compared with ShorelineS in GNU Octave 8.4."""
+    import contextlib
+    import io
+    from shorelines.coastline import merge_coastlines_mc
+    cases = scipy.io.loadmat(os.path.join(DATA, "merge_crossing_input.mat"))["cases"]
+    ref = scipy.io.loadmat(os.path.join(DATA, "merge_crossing_octave.mat"))
+    n_merged = 0
+    for k in range(cases.shape[0]):
+        x, y = cases[k, 0].ravel(), cases[k, 1].ravel()
+        with contextlib.redirect_stdout(io.StringIO()):
+            C = merge_coastlines_mc(dict(x_mc=x.copy(), y_mc=y.copy(), ds0=75.0))
+        np.testing.assert_array_equal(C["x_mc"], ref["out"][k, 0].ravel(), err_msg=f"case {k}")
+        np.testing.assert_array_equal(C["y_mc"], ref["out"][k, 1].ravel(), err_msg=f"case {k}")
+        n_merged += C["x_mc"].size != x.size
+    assert n_merged > 250

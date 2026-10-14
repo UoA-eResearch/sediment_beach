@@ -7,18 +7,13 @@ import math
 import numpy as np
 
 from .geometry import get_intersections, lines_with_crossing
-from .mfuncs import (atan2d, cosd, get_clockpoly, get_cyclic, get_mod,
+from .merge import merge_crossing_sections
+from .mfuncs import (msum, atan2d, cosd, get_clockpoly, get_cyclic, get_mod,
                      get_nansremoved, get_one_polygon, get_one_section,
                      insert_section, interp1, m_hypot, mmod, sind)
 from .waves import interpolate_on_grid
 
 _DBL_EPS = np.finfo(float).eps
-
-
-def msum(a):
-    """MATLAB/Octave sum (sequential accumulation)."""
-    a = np.asarray(a, dtype=float).ravel()
-    return float(np.cumsum(a)[-1]) if a.size else 0.0
 
 
 def _tfloor(x, ct):
@@ -429,9 +424,8 @@ def merge_coastlines(COAST, i_mc):
 
 
 def merge_coastlines_mc(COAST):
-    """Merge crossing coastline sections. Only the cases without crossings
-    (or with a single crossing, which ShorelineS leaves unchanged) are ported."""
-    eps = 0.1
+    """Merge crossing coastline sections (merge_coastlines_mc.m)."""
+    st = dict(eps=0.1, IDcyclic=[], id2=None)       # function-level state of the MATLAB code
     _, _, n_mc, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], 1)
     ds0 = COAST["ds0"]
     for i_mc in range(1, n_mc):
@@ -439,8 +433,8 @@ def merge_coastlines_mc(COAST):
             xi, yi, _, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], i_mc)
             xj, yj, _, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], j_mc)
             if xi.size > 2 and xj.size > 2 and (abs(msum(xi) - msum(xj)) != 0 and abs(msum(yi) - msum(yj)) != 0):
-                cyclici = m_hypot(xi[-1] - xi[0], yi[-1] - yi[0]) < eps
-                cyclicj = m_hypot(xj[-1] - xj[0], yj[-1] - yj[0]) < eps
+                cyclici = m_hypot(xi[-1] - xi[0], yi[-1] - yi[0]) < st["eps"]
+                cyclicj = m_hypot(xj[-1] - xj[0], yj[-1] - yj[0]) < st["eps"]
                 if cyclici and not cyclicj:
                     xi, xj = xj, xi
                     yi, yj = yj, yi
@@ -453,10 +447,12 @@ def merge_coastlines_mc(COAST):
                 if cwj < 1 and xj[-1] != xj[0] and yj[-1] != yj[0]:
                     xj = np.append(xj, xj[0])
                     yj = np.append(yj, yj[0])
-                xcr, _, _, _, _, _, _, _ = get_intersections(xi, yi, xj, yj)
+                xcr, ycr, indi, indj, _, _, _, _ = get_intersections(xi, yi, xj, yj)
                 if xcr.size > 1 and xcr.size != 3:
-                    raise NotImplementedError("merging of crossing coastline sections")
-                xnewi, ynewi, xnewj, ynewj = xi, yi, xj, yj
+                    xnewi, ynewi, xnewj, ynewj = merge_crossing_sections(
+                        st, xi, yi, xj, yj, cyclici, cyclicj, cwi, cwj, xcr, ycr, indi, indj)
+                else:                                # 0, 1 or 3 crossings: left unchanged
+                    xnewi, ynewi, xnewj, ynewj = xi, yi, xj, yj
             elif xi.size <= 1 and xj.size > 2:
                 xnewi, ynewi, xnewj, ynewj = [-1e10], [-1e10], xj, yj
             elif xi.size > 2 and xj.size <= 1:

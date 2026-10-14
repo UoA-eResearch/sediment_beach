@@ -98,7 +98,8 @@ covers the processes that `hindcast_run.m` switches on, plus closed
 - shadowing by the coastline itself, smoothing at sharp angles, upwind
   correction for high-angle waves, `periodic`/`closed`/`neumann` boundaries;
 - coastline change, overwash of narrow spits, removal of self-intersecting
-  loops, merging of sections (when they do not cross), NaN cleanup;
+  loops, merging of sections (also sections that cross each other, e.g. two
+  beaches growing into each other: `shorelines/merge.py`), NaN cleanup;
 - output storage with the same fields as `output.mat` (`O`).
 
 ### Closed (cyclic) sections: islands and lakes
@@ -127,8 +128,9 @@ y_mc = np.r_[y_beach, np.nan, y_island]
 - **Ordering.** When a closed section comes before an open one,
   `merge_coastlines_mc` swaps them after the first time step. The MATLAB code
   does the same.
-- **Crossings.** Merging of sections that cross (e.g. an island growing
-  into the coast) is still not ported and raises `NotImplementedError`.
+- **Crossings.** Sections that cross each other (an island growing into the
+  coast, two beaches growing into each other) are merged as in ShorelineS'
+  `merge_coastlines_mc`.
 
 Anything else (structures/groynes, revetments, dunes, mud, nourishments,
 diffraction, tides, other transport formulas, wave climates, variable time
@@ -165,6 +167,15 @@ The reference is the repository's MATLAB code run in GNU Octave 8.4.
   by cos(89.999°) ≈ 2e-5 magnifies rounding differences. A separate test
   exercises the first/last-point merge of closed sections during overwash,
   and `get_clockpoly` is checked on 300 random polygons.
+- **Merging of crossing sections** (`merge_coastlines_mc`): bit-identical to
+  Octave on 400 random pairs of crossing sections:
+  - two open beaches;
+  - a beach and an island, in either order;
+  - two islands;
+  - wavy lines crossing many times.
+
+  305 of these cases merge. See
+  `tests/test_shorelines.py::test_merge_crossing_sections_matches_octave`.
 - **`get_intersections`**: bit-identical to Octave on 400 random cases
   (NaN separators, vertical segments, self-intersections).
 - **Current `hindcast_run` settings, 2 days** (start 1999-08-01, closed

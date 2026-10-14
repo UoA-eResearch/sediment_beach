@@ -448,6 +448,12 @@ Fixed (October 2026):
   `datenum` so the script also runs in GNU Octave.
 - **`python/hindcast_run.py`** had a syntax error (`gamma = 0.5;` inside
   `dict(...)`), and `python/initial_grid.py` still read `A_site2.mat`.
+- **Python port: crossing sections.** With the synthetic waves
+  (`sinthe_waves.nc`), beaches 2 and 3 grow into each other after about
+  1.5 years. The Python port then stopped with `NotImplementedError: merging
+  of crossing coastline sections`: that part of ShorelineS'
+  `merge_coastlines_mc` had not been ported. It is ported now
+  (`python/shorelines/merge.py`) and checked against Octave.
 
 Still open:
 

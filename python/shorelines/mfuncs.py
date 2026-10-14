@@ -281,6 +281,12 @@ def insert_section1(vnew, v_mc, i_mc):
     return xo
 
 
+def msum(a):
+    """MATLAB/Octave sum (sequential accumulation)."""
+    a = np.asarray(a, dtype=float).ravel()
+    return float(np.cumsum(a)[-1]) if a.size else 0.0
+
+
 def get_clockpoly(x, y):
     """Orientation of a polygon: 1 clockwise, -1 counter-clockwise, 0 undetermined."""
     x = np.asarray(x, dtype=float).ravel()
