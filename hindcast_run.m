@@ -1,33 +1,32 @@
 
 clear all
 
-addpath(fullfile(fileparts(mfilename('fullpath')),'ShorelineS_functions')); %Add shorelineS model functions (folder next to this script)
+addpath('C:\Users\mpul348\Documents\code_paper2_optimized\ShorelineS_functions'); %Add shorelineS model functions (folder next to this script)
 S=struct;
-start = '2000-01-01'; S.reftime = start ;
-end_simul = '2024-12-30'; S.endofsimulation = end_simul;
+start = '1999-08-01'; S.reftime = start ;
+end_simul = '2004-6-30'; S.endofsimulation = end_simul;
 ref_time = datetime(S.reftime);
 coastSat_start = datetime('1999-08-01');
 n_d = days(datetime(end_simul) - datetime(start));
 dy = days(ref_time - coastSat_start); %days since 1 august 1999, this parameter defines the initial coastline of the observed data for comparison
 site = 2; %embayment number
-beach = 2; %number identifying the beach
 interv = 30; %Time interval of storage output (in days)
-file_out = '30_sept_int_w'; %folder that will hold the model run output
+file_out = 'sinthetic_test'; %folder that will hold the model run output
 %plot_waves 
 [x, y, x_initial, y_initial, g] = initial_grid([2 3], dy, n_d); %creating the shoreline initial position in coordinates (UTM) and the model grid
 g = {g};
 %S.xyout=g; %Doing this directly defining the model grid, The model will make a projection of the 'coastline position', 'wave conditions' and 'transports' on this grid. xc,yc are the modeled coordinades and zg is the cross-shore change in relation to the grid
 S.xmc = x_initial; %input initial coastline coordinates
 S.ymc = y_initial;
-S.wvcfile='input_25_contour.nc';
+S.wvcfile='sinthe_waves.nc';
 S.interpolationmethod='alongshoremapping';
 S.ddeep = 25;
 S.dnearshore = 25; 
 %S.qscal = 0.5; %default = 1 %calibration factor
 S.ds0=75; % initial space step [m]   
 S.trform = 'KAMP' ;
-S.boundaryconditionstart='periodic';
-S.boundaryconditionend='periodic';
+S.boundaryconditionstart='closed';
+S.boundaryconditionend='closed';
 S.d=10; % active profile height [m],default = 10 %it is possible to use spacially varying d
 S.dt = 1/(365*8); %number of time step. unit = years 
 S.tc=0; %fixed time step

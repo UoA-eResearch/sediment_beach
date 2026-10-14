@@ -71,11 +71,11 @@ remove{16} = 27:43;
 % Load PCA shoreline data
 % ---------------------------------------------------------------
 
-A_file = 'A_site2.mat';
-mint_file = 'mint_site2.mat';
+A_file = 'PC_lst_site2.mat';
+mint_file = 'mean_PC_lst_site2.mat';
 
-load(A_file,'A');
-load(mint_file,'mint');
+load(A_file,'PC_lst');
+load(mint_file,'mean_PC_lst');
 
 
 %% --------------------------------------------------------------
@@ -175,9 +175,9 @@ for ib = 1:length(beach)
     % PCA shoreline reconstruction
     % -----------------------------------------------------------
 
-    A_s = A{b};
+    A_s = PC_lst{b};
 
-    mint_s = mint{b};
+    mint_s = mean_PC_lst{b};
 
     % Convert PCA anomaly to absolute shoreline position
     A_abs = A_s + mint_s;

@@ -5,7 +5,7 @@ clear all
 %This function creates a netcdf file,input_nc, to be used in ShorelineS
 %model by interpolating wave parametrs along a contour
 
-input_nc = 'input_25_contour.nc'; %giving the file name
+input_nc = 'input_25_contour_opt.nc'; %giving the file name
 
 %reading the netcdf file from Oceanum database
 ncfile = ('oceanum_paper2.nc'); 

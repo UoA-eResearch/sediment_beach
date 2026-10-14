@@ -1,6 +1,6 @@
 """Python port of hindcast_run.m: ShorelineS hindcast for site 2, beaches 2 and 3.
 
-    python hindcast_run.py                       # full run 2000-01-01 .. 2024-12-30
+    python hindcast_run.py                       # full run 
     python hindcast_run.py --end 2000-03-01      # shorter run
     python hindcast_run.py --out-dir my_run --no-project
 """
@@ -19,9 +19,9 @@ REPO = os.path.dirname(HERE)
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--start", default="2000-01-01")
+    ap.add_argument("--start", default="1999-08-01")
     ap.add_argument("--end", default="2024-12-30")
-    ap.add_argument("--out-dir", default=os.path.join(HERE, "output", "30_sept_int_w"))
+    ap.add_argument("--out-dir", default=os.path.join(HERE, "output", "9_oct_closed"))
     ap.add_argument("--wave-file", default=os.path.join(REPO, "input_25_contour.nc"))
     ap.add_argument("--interval", type=float, default=30, help="storage interval of the output [days]")
     ap.add_argument("--no-project", action="store_true", help="skip project_output")
@@ -44,11 +44,13 @@ def main(argv=None):
         ddeep=25, dnearshore=25,
         ds0=75,                                       # initial space step [m]
         trform="KAMP",
-        boundaryconditionstart="periodic", boundaryconditionend="periodic",
+        boundaryconditionstart="closed", boundaryconditionend="closed",
         d=10,                                         # active profile height [m]
+        d50 = 1.0e-4,
         dt=1 / (365 * 8), tc=0,                       # fixed 3-hourly time step [yr]
         storageinterval=a.interval, outputdir=a.out_dir,
         suppresshighangle=0,
+        gamma = 0.5;
     )
     t1 = time.perf_counter()
     model = ShorelineS(S, verbose=not a.quiet)
