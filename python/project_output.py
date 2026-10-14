@@ -47,9 +47,10 @@ def project_output(x, y, file_out, dy, interv, x_initial, y_initial, n_d, O=None
     if x_model.shape[0] == 1:
         x_model, y_model = x_model.T, y_model.T
 
-    # observed data (MATLAB rows dy:dy+n_d, 1-based)
-    x_obs = x[dy - 1:dy + n_d, :]
-    y_obs = y[dy - 1:dy + n_d, :]
+    # observed data over the simulated period; row 0 of x, y is 1 August 1999,
+    # so row dy is the start date (dy = 0 for a run starting on 1 August 1999)
+    x_obs = x[dy:dy + n_d + 1, :]
+    y_obs = y[dy:dy + n_d + 1, :]
     if interv > 1:
         idx = np.arange(0, x_obs.shape[0], interv)
         x_obst, y_obst = x_obs[idx].T, y_obs[idx].T

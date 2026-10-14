@@ -14,9 +14,9 @@ function [x, y, x_initial, y_initial, g] = initial_grid(beach, dy, n_d)
 %   g             = [x_initial y_initial]
 %
 % Important:
-%   x and y contain the FULL time series.
-%   dy and n_d are not used to trim the output here.
-%   Trimming is done later in project_output.
+%   x and y contain the FULL time series (row 1 = 1 August 1999).
+%   dy (days since 1 August 1999) selects the row of the initial
+%   coastline; n_d is not used. Trimming is done later in project_output.
 % ==============================================================
 
 
@@ -385,9 +385,14 @@ for ib = 1:length(beach)
     % Initial shoreline for this beach
     % -----------------------------------------------------------
 
-    x_initial_b = x_b(1,:);
+    % (the coastline on the start date of the simulation)
+    if nargin < 2 || isempty(dy)
+        dy = 0;
+    end
 
-    y_initial_b = y_b(1,:);
+    x_initial_b = x_b(dy+1,:);
+
+    y_initial_b = y_b(dy+1,:);
 
 
     %% ==========================================================

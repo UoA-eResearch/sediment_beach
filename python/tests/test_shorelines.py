@@ -166,3 +166,73 @@ def test_model_cyclic_island_matches_octave(tmp_path):
         a = getattr(ref, f)
         np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
         np.testing.assert_allclose(O[f], a, rtol=0, atol=1e-10 * np.nanmax(np.abs(a)), err_msg=f)
+
+
+# ---------------------------------------------------------------------------
+def test_model_synthetic_waves_closed_matches_octave(tmp_path):
+    """The current hindcast_run settings (start 1999-08-01, closed boundaries,
+    synthetic waves of sinth_waves.m, d50 = 1e-4, gamma = 0.5): 2 days compared
+    with ShorelineS in GNU Octave 8.4."""
+    from shorelines import ShorelineS
+    wave_file = os.path.join(REPO, "sinthe_waves.nc")
+    if not _lfs_available(wave_file):
+        pytest.skip("sinthe_waves.nc not available (git lfs pull)")
+    c = scipy.io.loadmat(os.path.join(DATA, "synthetic_closed_input.mat"))
+    S = dict(reftime="1999-08-01", endofsimulation="1999-08-03", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
+             wvcfile=wave_file, interpolationmethod="alongshoremapping", ddeep=25, dnearshore=25, ds0=75,
+             trform="KAMP", boundaryconditionstart="closed", boundaryconditionend="closed", d=10, d50=1e-4,
+             gamma=0.5, dt=1 / (365 * 8), tc=0, storageinterval=1, outputdir=str(tmp_path),
+             suppresshighangle=0)
+    O = ShorelineS(S, verbose=False, save_output=False).run()
+    ref = scipy.io.loadmat(os.path.join(DATA, "octave_synthetic_closed_2day_output.mat"), squeeze_me=False,
+                           struct_as_record=False)["O"][0, 0]
+    for f in ("x", "y", "x1", "y1", "distx", "n"):
+        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
+    # The synthetic directions include waves from the land side, where the
+    # angle is clipped near 90 degrees and dividing by its cosine magnifies
+    # last-bit differences of libm (a few points at ~3e-11 relative).
+    for f in ("QS", "dSds", "HSo", "PHIo", "TP", "HS", "PHI", "HSbr", "PHIbr", "dPHIbr", "hbr"):
+        a = getattr(ref, f)
+        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
+        np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
+
+
+# ---------------------------------------------------------------------------
+# Parallel parameter sets (run_ensemble.py)
+def test_ensemble_parameter_sets(tmp_path):
+    import run_ensemble as re_
+    grid = re_.parse_set(["qscal=0.5,1", "boundaryconditionstart=closed,periodic"])
+    assert grid == {"qscal": [0.5, 1], "boundaryconditionstart": ["closed", "periodic"]}
+    runs = re_.expand([{"d": 8}, {"d": 12}], grid)
+    assert len(runs) == 8 and runs[0] == {"d": 8, "qscal": 0.5, "boundaryconditionstart": "closed"}
+    assert re_.expand(None, None) == [{}]
+    p = tmp_path / "runs.csv"
+    p.write_text("qscal,wave_file,end\n0.5,sinthe_waves.nc,2000-01-01\n2,,\n")
+    rows = re_.read_runs(str(p))
+    assert rows == [{"qscal": 0.5, "wave_file": "sinthe_waves.nc", "end": "2000-01-01"}, {"qscal": 2}]
+    run, s_over = re_.split_params(rows[0])
+    assert run["end"] == "2000-01-01" and run["wave_file"] == os.path.join(REPO, "sinthe_waves.nc")
+    assert s_over == {"qscal": 0.5}
+    with pytest.raises(ValueError, match="unknown setting"):
+        re_.validate([{"qscall": 1}])
+    with pytest.raises(NotImplementedError):
+        re_.validate([{"trform": "CERC"}])
+
+
+def test_ensemble_runs_in_parallel(tmp_path):
+    """Two 1-day runs in two processes; each writes its own output and a summary row."""
+    import csv
+    import run_ensemble as re_
+    if not _lfs_available(os.path.join(REPO, "PC_lst_site2.mat")):
+        pytest.skip("LFS data not available (git lfs pull)")
+    base = dict(re_.BASE, end="1999-08-02", interval=1)
+    rows = re_.run_ensemble([{"qscal": 0.5}, {"qscal": 2}], str(tmp_path), jobs=2, base=base, verbose=False)
+    assert [r["status"] for r in rows] == ["ok", "ok"], rows
+    for r in rows:
+        assert (tmp_path / r["out_dir"] / "output.mat").exists()
+        assert r["steps"] == 9 and np.isfinite(r["rmse_m"])
+    with open(tmp_path / "summary.csv") as f:
+        summary = list(csv.DictReader(f))
+    assert [s["param_qscal"] for s in summary] == ["0.5", "2"]
+    # larger qscal, more coastline change
+    assert rows[1]["model_mean_abs_change_end_m"] > rows[0]["model_mean_abs_change_end_m"]

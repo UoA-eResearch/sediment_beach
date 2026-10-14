@@ -8,14 +8,19 @@ shorelines.
 The workflow:
 
 1. interpolates an Oceanum wave hindcast onto the 25 m depth contour
-   (`create_nc.m`);
+   (`create_nc.m`), or makes synthetic wave directions with the same wave
+   heights and periods (`sinth_waves.m`);
 2. rebuilds the observed CoastSat shoreline of the selected beaches from a PCA
-   reconstruction and uses it as the model's initial coastline
-   (`initial_grid.m`);
-3. runs ShorelineS for 2000-01-01 to 2024-12-30 at a 3-hour time step
-   (`hindcast_run.m`);
+   reconstruction without mode 1 (`eofs_code2.m`) and uses it as the model's
+   initial coastline (`initial_grid.m`);
+3. runs ShorelineS at a 3-hour time step (`hindcast_run.m`; currently
+   1999-08-01 to 2004-06-30 with the synthetic waves and closed boundaries);
 4. projects modelled and observed shorelines onto the initial coastline and
    plots both as cross-shore change (`project_output.m`).
+
+Several parameter sets can be run in parallel with `python/run_ensemble.py`
+(or `run_ensemble.m` with MATLAB's `parfor`); see
+[Running several parameter sets in parallel](#running-several-parameter-sets-in-parallel).
 
 ---
 
@@ -64,9 +69,12 @@ location, so it can be run from any working directory.
 | File | Type | What it does |
 |---|---|---|
 | `hindcast_run.m` | script | **Main entry point.** Sets all ShorelineS parameters in a struct `S`, builds the initial coastline with `initial_grid`, runs `ShorelineS(S)` and then `project_output`. |
-| `initial_grid.m` | function | `[x, y, x_initial, y_initial, g] = initial_grid(beach, dy, n_d)`. For each selected beach it reads the transects from the CoastSat workbook (`nzdXXXX.xlsx`, sheet *Transects*), converts transect origins to NZTM2000 (EPSG:2193), and rebuilds shoreline positions as `origin + (A + mint) * [sin(phi), cos(phi)]` from the PCA reconstruction (`A_site2.mat`, `mint_site2.mat`). Transects left out of the PCA (`remove{b}`) are held fixed at their first valid CoastSat observation (sheet *Intersect points*). Beaches are joined with one NaN column between them. Returns the full daily time series (`x`, `y`: time x transects) and the first row as the initial coastline. `dy` and `n_d` are not used here; trimming happens in `project_output`. |
-| `project_output.m` | function | `project_output(x, y, file_out, dy, interv, x_initial, y_initial, n_d)`. Loads `<file_out>/output.mat`, selects observations `dy : dy+n_d`, and uses `get_polydistance` (normals of ±500 m around the initial coastline) to compute cross-shore change for the model, for the observations every `interv` days, and for the daily observations. Plots model, CoastSat, and CoastSat with a 30-day moving mean. |
+| `initial_grid.m` | function | `[x, y, x_initial, y_initial, g] = initial_grid(beach, dy, n_d)`. For each selected beach it reads the transects from the CoastSat workbook (`nzdXXXX.xlsx`, sheet *Transects*), converts transect origins to NZTM2000 (EPSG:2193), and rebuilds shoreline positions as `origin + (PC_lst + mean_PC_lst) * [sin(phi), cos(phi)]` from the PCA reconstruction without mode 1 (`PC_lst_site2.mat`, `mean_PC_lst_site2.mat`). Transects left out of the PCA (`remove{b}`) are held fixed at their first valid CoastSat observation (sheet *Intersect points*). Beaches are joined with one NaN column between them. Returns the full daily time series (`x`, `y`: time x transects, row 1 = 1999-08-01) and row `dy+1` (the start date) as the initial coastline. |
+| `project_output.m` | function | `project_output(x, y, file_out, dy, interv, x_initial, y_initial, n_d [, wave_mat])`. Loads `<file_out>/output.mat`, selects the observations of the simulated period (rows `dy+1 : dy+n_d+1`), and uses `get_polydistance` (normals of ±500 m around the initial coastline) to compute cross-shore change for the model, for the observations every `interv` days, and for the daily observations. Plots model, CoastSat and its 30-day moving mean; observed and modelled shorelines once a year; and, from `wave_mat` (default `wave_data.mat`; `waves_sinth.mat` for the synthetic waves), the alongshore wave-energy flux and the wave-direction anomalies next to the cross-shore change. The wave figures are skipped with a warning if `wave_mat` cannot be read. |
+| `run_ensemble.m` | function | `run_ensemble(params, S0, out_root)`: runs ShorelineS for each element of the struct array `params` (fields override `S0`) in a `parfor` loop, one folder per run, plus `summary.csv`. |
 | `create_nc.m` | script | Preprocesses the Oceanum hindcast `oceanum_paper2.nc` (48 nodes, hourly from 1979). Selects 1999-08-01 to 2024-12-30, finds the 25 m depth contour, interpolates Hs, Tp and mean direction (direction through its sin/cos components) linearly onto the contour points, with nearest-neighbour extrapolation, and writes `input_25_contour.nc` in the ShorelineS wave-station format (`time` in seconds since 1999-08-01, `station_x/y` in NZTM, `point_hm0`, `point_tp`, `point_wavdir`). Also saves `wave_data.mat`. Note that `nccreate` fails if `input_25_contour.nc` already exists, so delete it first. |
+| `sinth_waves.m` | script | Like `create_nc.m`, but replaces the wave directions with synthetic ones: uniformly random 0–45° or 225–360° in odd years and 45–225° in even years (`rng(1)`). Hs and Tp are the interpolated hindcast. Writes `sinthe_waves.nc` and `waves_sinth.mat`. Fails if `sinthe_waves.nc` exists. |
+| `eofs_code2.m` | script | PCA (SVD) of the CoastSat series of the 16 beaches; reconstructs them without mode 1 (`PC_lst`), the per-transect mean (`mean_PC_lst`) and the variance fraction outside mode 1 (`explained_rem`). Needs `load_data`, `tr_selection`, `smoothgap2` and `shoreline_metrics` from the paper 1 code, which is **not in this repository** (the `addpath` points to a local Windows folder), so it cannot be rerun from here. Its outputs are committed. |
 | `plot_waves.m` | function | Plots direction, Hs and Tp along the contour against time, from `wave_data.mat`. |
 | `load_data2.m` | function | Earlier, **unfinished** loader for the CoastSat workbooks. It is not called anywhere and does not run as is (it uses an undefined `input_file` and the loop is not closed). |
 | `cmocean.m` | function | Third-party perceptually uniform colormaps (Thyng et al., 2016). |
@@ -76,13 +84,17 @@ location, so it can be run from any working directory.
 | File | Content |
 |---|---|
 | `nzd0204.xlsx` … `nzd0332.xlsx` | CoastSat exports, one per beach. Sheets: *Transects* (one row per transect: `orientation` in column 3, `land_x`/`land_y` = lon/lat of the landward end in columns 18-19), *Intersect points* (one row per image date, one `"lat,lon"` text cell per transect), *Intersects* (cross-shore distance per transect and date), *Tides*. Site 2 uses 16 workbooks, listed west to east in `initial_grid.m`. |
-| `A_site2.mat` | `A{1..16}`: PCA-reconstructed daily cross-shore shoreline anomaly per beach (9284 days x retained transects, from 1999-08-01). |
-| `mint_site2.mat` | `mint{1..16}`: mean (offset) per retained transect, added to `A`. |
+| `PC_lst_site2.mat` | `PC_lst{1..16}`: PCA reconstruction without mode 1 (`eofs_code2.m`), daily cross-shore position per beach (9284 days from 1999-08-01 x retained transects). Used by `initial_grid`. |
+| `mean_PC_lst_site2.mat` | `mean_PC_lst{1..16}`: time mean of `PC_lst` per transect (repeated over time), added to `PC_lst`. |
+| `explained_rem_site2.mat` | `explained_rem{1..16}`: fraction of the variance not in mode 1 (shown in `project_output`'s figures). |
+| `A_site2.mat`, `mint_site2.mat` | The earlier PCA reconstruction (all modes) and its offsets, used by `initial_grid` before the switch to `PC_lst`; the [Findings](#findings) below were made with these. |
 | `Astd_site2.mat` | `Astd.beach1..16`: standard deviation of the reconstruction (not used by the scripts). |
 | `unique_days.mat` | Helper date lists (not used by the scripts). |
 | `oceanum_paper2.nc` | Raw Oceanum wave hindcast at 48 nodes: `hs`, `tps`, `dpm`, `botl` (depth), `latitude`, `longitude`, `time` (hours since 1979-02-01). |
-| `input_25_contour.nc` | Model wave input made by `create_nc.m`: 94 stations along the 25 m contour, 74,265 3-hourly records. |
+| `input_25_contour.nc` | Model wave input made by `create_nc.m`: 94 stations along the 25 m contour, 74,265 3-hourly records from 1999-08-01. (`create_nc.m` now writes `input_25_contour_opt.nc`.) |
 | `wave_data.mat` | The same interpolated waves as MATLAB arrays (v7.3). |
+| `sinthe_waves.nc`, `waves_sinth.mat` | Synthetic-direction waves from `sinth_waves.m` (same stations, times, Hs and Tp as `input_25_contour.nc`). |
+| `2_oct_opt/output.mat` | Stored result of a later `hindcast_run`. |
 | `30_sept_int_w/output.mat` | Stored result of an earlier `hindcast_run` (`O`, `P`, `S`). The benchmark harness takes its initial coastline from here. |
 
 ### Results, figures, Python port, benchmarks
@@ -117,15 +129,16 @@ The run settings used in this project (see `hindcast_run.m`):
 
 | Parameter | Value | Meaning |
 |---|---|---|
-| `reftime` / `endofsimulation` | 2000-01-01 / 2024-12-30 | simulation period |
-| `dt`, `tc` | 1/(365·8) yr, 0 | fixed 3-hour time step (≈ 73,000 steps) |
-| `wvcfile` | `input_25_contour.nc` | wave time series at 94 contour stations |
+| `reftime` / `endofsimulation` | 1999-08-01 / 2004-06-30 | simulation period (the Findings below: 2000-01-01 / 2024-12-30) |
+| `dt`, `tc` | 1/(365·8) yr, 0 | fixed 3-hour time step (≈ 14,000 steps; 73,000 for 2000–2024) |
+| `wvcfile` | `sinthe_waves.nc` | wave time series at 94 contour stations (Findings: `input_25_contour.nc`) |
 | `interpolationmethod` | `alongshoremapping` | how stations map onto the coastline |
 | `ddeep`, `dnearshore` | 25 m, 25 m | depth of the wave input and of the nearshore point |
 | `ds0` | 75 m | alongshore grid size |
 | `trform` | `KAMP` | Kamphuis transport formula |
 | `d` | 10 m | active profile height |
-| boundary conditions | `periodic` | at both ends |
+| boundary conditions | `closed` | at both ends (Findings: `periodic`) |
+| `d50`, `gamma` | defaults 2·10⁻⁴ m, 0.72 | `python/hindcast_run.py` sets 10⁻⁴ m and 0.5 |
 | `storageinterval` | 30 days | output interval |
 | `plotinterval` | 240 steps (30 days) | plot/video interval |
 
@@ -252,6 +265,25 @@ Wave forcing along the 25 m contour, 1999–2024 (`plot_waves`):
 ![Waves along the 25 m contour](docs/figures/waves_along_contour.png)
 
 ---
+
+## Running several parameter sets in parallel
+
+One model run uses one CPU: the time loop is sequential, and the arrays of a
+time step are too small to gain from multithreading. To use several CPUs, run
+several parameter sets at once:
+
+```bash
+cd python
+python run_ensemble.py --set qscal=0.5,1,2 --set wave_file=../sinthe_waves.nc,../input_25_contour.nc \
+                       --end 2004-06-30 -j 4 --out-dir output/qscal_waves
+```
+
+Each run gets its own folder, and `summary.csv` collects the parameters, run
+times and model-vs-CoastSat statistics. Parameter sets can also come from a
+CSV or JSON file (`--runs`). See
+[python/README.md](python/README.md#running-several-parameter-sets-in-parallel).
+`run_ensemble.m` is the MATLAB equivalent (`parfor`, Parallel Computing
+Toolbox).
 
 ## Performance
 
@@ -396,16 +428,36 @@ In Octave: `pkg load netcdf`, and run headless with
 
 ---
 
-## Notes and possible issues (not changed)
+## Notes and possible issues
 
-- **Observation window off by one?** Row 1 of `x`/`y` from `initial_grid` is
-  1999-08-01. `hindcast_run` sets `dy = days(2000-01-01 − 1999-08-01) = 153`,
-  and `project_output` uses rows `dy : dy+n_d`. Row 153 is 1999-12-31, so the
-  observations may start one day before the model. If the intent is to start
-  on 2000-01-01, the rows would be `dy+1 : dy+1+n_d`.
-- **Initial coastline date.** `initial_grid` returns the first row
-  (1999-08-01) as the initial coastline, while the model starts on 2000-01-01.
-  The `dy` argument is passed in but not used.
+Fixed (October 2026):
+
+- **Observation window.** Row 1 of `x`/`y` from `initial_grid` is 1999-08-01,
+  so the start date is row `dy+1`. `project_output` used rows `dy : dy+n_d`
+  (one day early), which fails for a run starting on 1999-08-01 (`dy = 0`).
+  Both versions now use rows `dy+1 : dy+n_d+1`.
+- **Initial coastline date.** `initial_grid` returned the first row
+  (1999-08-01) as the initial coastline whatever the start date. It now returns
+  row `dy+1`. For the current start date (1999-08-01) nothing changes.
+- **`project_output.m`** had been turned into a script (signature commented
+  out) that loaded a hard-coded `C:\Users\...\output.mat`, used `ll`, `w`, `h`
+  and `t` before defining them, assumed monthly output dates and hid the wrong
+  beach-3 transects (`293+remove{3}`; beach 3 starts at column 295). It is a
+  function again, with the original arguments.
+- **`hindcast_run.m`**: the `addpath` is relative again, and the dates use
+  `datenum` so the script also runs in GNU Octave.
+- **`python/hindcast_run.py`** had a syntax error (`gamma = 0.5;` inside
+  `dict(...)`), and `python/initial_grid.py` still read `A_site2.mat`.
+
+Still open:
+
+- **MATLAB and Python settings differ.** `python/hindcast_run.py` sets
+  `d50 = 1e-4` and `gamma = 0.5` and uses `input_25_contour.nc`;
+  `hindcast_run.m` uses the defaults (`d50 = 2e-4`, `gamma = 0.72`) and
+  `sinthe_waves.nc`.
+- `eofs_code2.m` depends on functions that are not in the repository (see above).
+- GNU Octave's `movmean` ignores `'omitnan'` (it warns and includes NaN); MATLAB
+  is fine.
 - **Stored run.** `30_sept_int_w/output.mat` only has output up to 2004-03
   (52 storage times), so that run probably did not finish the full period.
 - `make_video.m` writes `[S.outputdir,'\animation']` with a Windows path

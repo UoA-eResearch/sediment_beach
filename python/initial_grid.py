@@ -6,8 +6,10 @@ observation). Beaches are joined with one NaN between them.
 
     x, y, x_initial, y_initial, g = initial_grid([2, 3], dy, n_d)
 
-x, y            time x transects (full daily time series, NaN separators)
-x_initial/y_... first row = initial coastline (NZTM2000 / EPSG:2193)
+x, y            time x transects (full daily time series from 1 August 1999,
+                NaN separators)
+x_initial/y_... row dy (days since 1 August 1999, the start date) = initial
+                coastline (NZTM2000 / EPSG:2193)
 g               [x_initial, y_initial] as an (n x 2) array
 """
 import os
@@ -63,8 +65,9 @@ def _parse_latlon(cells):
 
 
 def initial_grid(beach, dy=None, n_d=None, data_dir=REPO, verbose=True):
-    A = scipy.io.loadmat(os.path.join(data_dir, "A_site2.mat"))["A"]
-    mint = scipy.io.loadmat(os.path.join(data_dir, "mint_site2.mat"))["mint"]
+    # PCA reconstruction without mode 1 (eofs_code2.m) and its time-mean per transect
+    A = scipy.io.loadmat(os.path.join(data_dir, "PC_lst_site2.mat"))["PC_lst"]
+    mint = scipy.io.loadmat(os.path.join(data_dir, "mean_PC_lst_site2.mat"))["mean_PC_lst"]
     x = y = None
     x_initial = y_initial = None
     for b in beach:
@@ -122,14 +125,15 @@ def initial_grid(beach, dy=None, n_d=None, data_dir=REPO, verbose=True):
             else:
                 print(f"Warning: beach {b}, transect {tr + 1}: no valid satellite observation found.")
 
+        i0 = int(dy or 0)                               # initial coastline = start date
         if x is None:
             x, y = x_b, y_b
-            x_initial, y_initial = x_b[0], y_b[0]
+            x_initial, y_initial = x_b[i0], y_b[i0]
         else:
             x = np.hstack([x, np.full((x.shape[0], 1), np.nan), x_b])
             y = np.hstack([y, np.full((y.shape[0], 1), np.nan), y_b])
-            x_initial = np.concatenate([x_initial, [np.nan], x_b[0]])
-            y_initial = np.concatenate([y_initial, [np.nan], y_b[0]])
+            x_initial = np.concatenate([x_initial, [np.nan], x_b[i0]])
+            y_initial = np.concatenate([y_initial, [np.nan], y_b[i0]])
         if verbose:
             print(f"  Total transects: {nT}\n  PCA transects:   {valid.sum()}\n  Removed:         {idx_remove.size}")
     g = np.stack([x_initial, y_initial], axis=1)
@@ -139,4 +143,4 @@ def initial_grid(beach, dy=None, n_d=None, data_dir=REPO, verbose=True):
 
 
 if __name__ == "__main__":
-    initial_grid([2, 3], 153, 9130)
+    initial_grid([2, 3], 0, 9283)

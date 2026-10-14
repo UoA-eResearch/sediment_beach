@@ -4,7 +4,8 @@ A Python (NumPy/SciPy) port of this repository's workflow:
 
 | MATLAB | Python | Notes |
 |---|---|---|
-| `hindcast_run.m` | `hindcast_run.py` | same settings; command-line options for period/output |
+| `hindcast_run.m` | `hindcast_run.py` | command-line options for period/output/wave file; `hindcast_settings()` returns the settings |
+| `run_ensemble.m` | `run_ensemble.py` | several parameter sets in parallel, one process per run |
 | `initial_grid.m` | `initial_grid.py` | pandas + pyproj (EPSG:4167 → EPSG:2193) |
 | `create_nc.m` | `create_nc.py` | contourpy + SciPy Delaunay interpolation; writes to `python/output/` |
 | `project_output.m` | `project_output.py` | vectorised `get_polydistance`; matplotlib figure |
@@ -16,13 +17,71 @@ A Python (NumPy/SciPy) port of this repository's workflow:
 ```bash
 pip install -r requirements.txt
 git lfs pull                                   # data files (from the repository root)
-python hindcast_run.py --end 2000-03-01        # short run; default is 2000-01-01 .. 2024-12-30
+python hindcast_run.py --end 2000-03-01        # short run; default is 1999-08-01 .. 2024-12-30
+python hindcast_run.py --wave-file ../sinthe_waves.nc --end 2004-06-30   # synthetic waves
+python run_ensemble.py --set qscal=0.5,1,2 --end 2004-06-30 -j 3          # 3 runs in parallel
 python create_nc.py                            # rebuild the wave input (to python/output/)
 python -m pytest tests                         # tests against GNU Octave results
 ```
 
 The reference data in `tests/data/` (`.mat`) are stored with Git LFS, like the
 other data files.
+
+## Running several parameter sets in parallel
+
+One run cannot use more than one CPU (the time loop is sequential), so
+`run_ensemble.py` runs parameter sets side by side, one process each
+(`concurrent.futures.ProcessPoolExecutor`, one BLAS thread per process).
+
+```bash
+# grid: every combination of the --set values (3 x 2 = 6 runs), 4 processes at a time
+python run_ensemble.py --set qscal=0.5,1,2 --set gamma=0.5,0.72 --end 2004-06-30 -j 4
+
+# a list of parameter sets: JSON list of objects, or CSV with one set per row
+python run_ensemble.py --runs runs.csv --out-dir output/my_ensemble --plot
+```
+
+```csv
+qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
+0.5,8,closed,closed,../sinthe_waves.nc
+1,10,periodic,periodic,../input_25_contour.nc
+```
+
+- **Keys.** A parameter set can override any ShorelineS setting the port
+  supports (MATLAB field names, case-insensitive: `qscal`, `d`, `d50`,
+  `gamma`, `ds0`, `ddeep`, `dnearshore`, `boundaryconditionstart`, …), plus
+  `start`, `end`, `wave_file` and `interval` (storage interval in days).
+  `--runs` and `--set` combine: every row of the file is run with every `--set`
+  combination.
+- **Checks first.** Every set is checked before anything starts: unknown keys,
+  options the port does not support, missing wave files and start dates before
+  1999-08-01 stop the command with an error.
+- **Shared data.** `initial_grid` runs once. Each run takes its initial
+  coastline from the row of its own start date.
+- **Failures.** A run that fails does not stop the others. Its traceback goes
+  to `error.txt` in its folder, and its row in `summary.csv` is marked
+  `failed`.
+- **Output** (in `--out-dir`, default `output/ensemble`):
+  - `run_<i>_<parameters>/` holds `output.mat` and `params.json`, plus
+    `project_output.png` with `--plot`;
+  - `summary.csv` has one row per run: the parameters, `status`, `steps`, the
+    run time, and model-vs-CoastSat statistics from `project_output`
+    (`rmse_m`, `bias_m`, `corr` over all compared points and times, and
+    `model_mean_abs_change_end_m`);
+  - `ensemble.json` records the parameter sets.
+
+From Python: `run_ensemble.run_ensemble([{"qscal": 0.5}, {"qscal": 2}], "out", jobs=2)`
+returns the summary rows.
+
+In MATLAB, `run_ensemble.m` does the same with `parfor`, which needs the
+Parallel Computing Toolbox (start a pool with `parpool(n)`); without it the
+loop runs serially:
+
+```matlab
+S0 = ...;   % the settings of hindcast_run.m, with S0.xmc / S0.ymc from initial_grid
+params = struct('qscal', {0.5, 1, 2});
+run_ensemble(params, S0, 'ensemble');
+```
 
 ## Scope of the ShorelineS port
 
@@ -108,7 +167,13 @@ The reference is the repository's MATLAB code run in GNU Octave 8.4.
   and `get_clockpoly` is checked on 300 random polygons.
 - **`get_intersections`**: bit-identical to Octave on 400 random cases
   (NaN separators, vertical segments, self-intersections).
-- **`initial_grid`**: the initial coastline matches the one MATLAB stored in
+- **Current `hindcast_run` settings, 2 days** (start 1999-08-01, closed
+  boundaries, synthetic waves `sinthe_waves.nc`, `d50 = 1e-4`, `gamma = 0.5`):
+  coastline coordinates are bit-identical to Octave's. Waves and transport
+  agree to ≤ 1e-13, except at 3 points (3e-11 relative), where synthetic waves
+  arrive from the land side (see above). See
+  `tests/test_shorelines.py::test_model_synthetic_waves_closed_matches_octave`.
+- **`initial_grid`** (with the earlier `A_site2.mat` PCA data): the initial coastline matches the one MATLAB stored in
   `30_sept_int_w/output.mat` to 4e-9 m (all 609 points).
 - **`create_nc`**: station positions match MATLAB's `input_25_contour.nc` to
   6e-8 m; Hs and Tp to ≤ 1.4e-10; wave direction to 2.5e-7°.
