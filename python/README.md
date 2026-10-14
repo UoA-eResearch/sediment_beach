@@ -26,10 +26,11 @@ other data files.
 ## Scope of the ShorelineS port
 
 ShorelineS is ~18,000 lines of MATLAB with many optional processes. The port
-covers the processes that `hindcast_run.m` switches on:
+covers the processes that `hindcast_run.m` switches on, plus closed
+(cyclic) coastline sections:
 
-- open (non-cyclic) coastline sections separated by NaN, regridding
-  (`griddingmethod` 2), coastline and foreshore orientation;
+- coastline sections separated by NaN, open or closed (see below),
+  regridding (`griddingmethod` 2), coastline and foreshore orientation;
 - wave time series at stations along a depth contour (`S.wvcfile`, NetCDF),
   `alongshoremapping` interpolation, time-series recycling;
 - refraction/shoaling to `S.dnearshore`, iterative breaking height,
@@ -39,6 +40,35 @@ covers the processes that `hindcast_run.m` switches on:
 - coastline change, overwash of narrow spits, removal of self-intersecting
   loops, merging of sections (when they do not cross), NaN cleanup;
 - output storage with the same fields as `output.mat` (`O`).
+
+### Closed (cyclic) sections: islands and lakes
+
+A section is closed when its last point is within 0.2 · `ds0` of its first
+point (ShorelineS' `get_cyclic`). Give it as a polygon that repeats its first
+point at the end:
+
+```python
+x_mc = np.r_[x_beach, np.nan, x_island]   # x_island[-1] == x_island[0]
+y_mc = np.r_[y_beach, np.nan, y_island]
+```
+
+- **Orientation matters.** The land must be on the right-hand side, as for
+  open coasts (sea on the left when walking along the coastline). An island
+  is therefore **clockwise**, and a lake or lagoon (water inside) is
+  counter-clockwise. As in ShorelineS, the smoothing at sharp angles and the
+  high-angle upwind correction are applied only to clockwise sections.
+- **Differences from open sections:**
+  - grid spacing, transport points and orientation wrap around the closure;
+  - the foreshore orientation is smoothed around the loop and mapped with
+    inverse-distance weights;
+  - no boundary condition is applied;
+  - the first and last point are moved together, in `coastline_change`,
+    `merge_coastlines` and overwash.
+- **Ordering.** When a closed section comes before an open one,
+  `merge_coastlines_mc` swaps them after the first time step. The MATLAB code
+  does the same.
+- **Crossings.** Merging of sections that cross (e.g. an island growing
+  into the coast) is still not ported and raises `NotImplementedError`.
 
 Anything else (structures/groynes, revetments, dunes, mud, nourishments,
 diffraction, tides, other transport formulas, wave climates, variable time
@@ -61,6 +91,20 @@ The reference is the repository's MATLAB code run in GNU Octave 8.4.
   (`O.x`, `O.y`, …) are **bit-identical** to Octave's. Transport and waves
   agree to floating-point round-off (relative differences ≤ 1e-14). See
   `tests/test_shorelines.py::test_model_2days_matches_octave`.
+- **Closed sections, 6 days** (49 steps, daily output), in four layouts:
+  - the two beaches plus an island;
+  - the island listed first;
+  - the island alone;
+  - the beaches plus a thin 35–70 m wide barrier island, so that overwash is
+    active.
+
+  Coastline coordinates are bit-identical to Octave's at every stored time.
+  Waves and transport agree to ≤ 1e-14 relative, except at 13 lee-side
+  points of the thin island, where they agree to 3e-11. There, waves
+  arrive from the land side, the angle is clipped to 89.999°, and dividing
+  by cos(89.999°) ≈ 2e-5 magnifies rounding differences. A separate test
+  exercises the first/last-point merge of closed sections during overwash,
+  and `get_clockpoly` is checked on 300 random polygons.
 - **`get_intersections`**: bit-identical to Octave on 400 random cases
   (NaN separators, vertical segments, self-intersections).
 - **`initial_grid`**: the initial coastline matches the one MATLAB stored in

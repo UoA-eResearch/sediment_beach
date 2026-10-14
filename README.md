@@ -91,7 +91,7 @@ location, so it can be run from any working directory.
 |---|---|
 | [`results/`](results/README.md) | Output of the full 2000–2024 hindcast (Python port): `output.mat`, `project_output` results, per-transect trends, all benchmark timings (`.mat` files in Git LFS) |
 | `docs/figures/` | Figures used in this README (`python/make_figures.py`) |
-| [`python/`](python/README.md) | Python port of the workflow and of the ShorelineS code path used here, with tests |
+| [`python/`](python/README.md) | Python port of the workflow and of the ShorelineS code path used here, including closed (cyclic) sections such as islands, with tests against Octave |
 | `benchmark/` | MATLAB/Octave timing harness and equivalence tests |
 
 ### `ShorelineS_functions/`
