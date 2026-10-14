@@ -256,3 +256,13 @@ def test_merge_crossing_sections_matches_octave():
         np.testing.assert_array_equal(C["y_mc"], ref["out"][k, 1].ravel(), err_msg=f"case {k}")
         n_merged += C["x_mc"].size != x.size
     assert n_merged > 250
+
+    # the merge of beaches 2 and 3 on 2002-06-10 in the hindcast with the
+    # synthetic waves (input recorded in the Python run, output from Octave)
+    ev = scipy.io.loadmat(os.path.join(DATA, "merge_event_synthetic_waves.mat"))["ev"]
+    ref = scipy.io.loadmat(os.path.join(DATA, "merge_event_synthetic_waves_octave.mat"))["out"]
+    for k in range(ev.shape[0]):
+        C = merge_coastlines_mc(dict(x_mc=ev[k, 0].ravel().copy(), y_mc=ev[k, 1].ravel().copy(), ds0=75.0))
+        np.testing.assert_array_equal(C["x_mc"], ref[k, 0].ravel())
+        np.testing.assert_array_equal(C["y_mc"], ref[k, 1].ravel())
+        assert np.isnan(C["x_mc"]).sum() < np.isnan(ev[k, 0]).sum()      # one section fewer
