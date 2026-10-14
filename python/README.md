@@ -10,6 +10,7 @@ A Python (NumPy/SciPy) port of this repository's workflow:
 | `project_output.m` | `project_output.py` | vectorised `get_polydistance`; matplotlib figure |
 | `plot_waves.m` | `plot_waves.py` | reads the MATLAB v7.3 `wave_data.mat` or the Python one |
 | – | `make_figures.py` | the README figures (`docs/figures/`) from `results/` |
+| – | `compare_model_coastsat.py` | the statistics behind the README section on why the model and CoastSat change differently |
 | `ShorelineS_functions/` | `shorelines/` | **the code path used by this project** (see below) |
 
 ```bash
