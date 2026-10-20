@@ -65,6 +65,30 @@ def _check_supported(S):
         raise NotImplementedError("only the KAMP transport formula is ported")
     if S["griddingmethod"] != 2:
         raise NotImplementedError("only griddingmethod 2 is ported")
+    for key in ("boundaryconditionstart", "boundaryconditionend"):
+        if str(S[key]).lower() not in ("closed", "periodic", "neumann", "fixed"):
+            raise NotImplementedError(f"S.{key} = {S[key]!r}: only 'closed', 'periodic', 'neumann' and "
+                                      "'fixed' are ported")
+    method = str(S["interpolationmethod"])
+    if not any(w in method for w in ("weight", "distance", "alongshore", "mapping")):
+        raise NotImplementedError(f"S.interpolationmethod = {method!r}: only 'alongshoremapping' and "
+                                  "'weighted_distance' are ported")
+    if S["smoothrefrac"] > 0:
+        raise NotImplementedError("S.smoothrefrac is not supported by the Python port")
+    if S["preserveorientation"] == 1:
+        raise NotImplementedError("S.preserveorientation is not supported by the Python port")
+
+
+def settings_for_mat(S):
+    """Settings dict -> MATLAB struct for savemat (None becomes [], as an unset MATLAB field)."""
+    out = {}
+    for k, v in S.items():
+        if v is None:
+            v = np.zeros((0, 0))
+        elif isinstance(v, bool):
+            v = int(v)
+        out[k] = v
+    return out
 
 
 def _add_vector(a, b):
@@ -252,7 +276,9 @@ class ShorelineS:
         O = dict(self.O)
         O["outputdir"] = outdir
         O["storageinterval"] = self.S["storageinterval"]
-        scipy.io.savemat(os.path.join(outdir, fname), {"O": O}, do_compression=False)
+        # S: every setting used (defaults filled in), as ShorelineS stores it in output.mat
+        scipy.io.savemat(os.path.join(outdir, fname), {"O": O, "S": settings_for_mat(self.S)},
+                         do_compression=False)
 
     # ------------------------------------------------------------------
     def step(self):

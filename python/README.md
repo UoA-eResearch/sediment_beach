@@ -4,7 +4,7 @@ A Python (NumPy/SciPy) port of this repository's workflow:
 
 | MATLAB | Python | Notes |
 |---|---|---|
-| `hindcast_run.m` | `hindcast_run.py` | command-line options for period/output/wave file; `hindcast_settings()` returns the settings |
+| `hindcast_run.m` | `hindcast_run.py` | command-line options for period/output/wave file, `--set KEY=VALUE` for model parameters; records the values used (`settings.json`, `S` in `output.mat`) |
 | `run_ensemble.m` | `run_ensemble.py` | several parameter sets in parallel, one process per run |
 | `initial_grid.m` | `initial_grid.py` | pandas + pyproj (EPSG:4167 → EPSG:2193) |
 | `create_nc.m` | `create_nc.py` | contourpy + SciPy Delaunay interpolation; writes to `python/output/` |
@@ -19,6 +19,8 @@ pip install -r requirements.txt
 git lfs pull                                   # data files (from the repository root)
 python hindcast_run.py --end 2000-03-01        # short run; default is 1999-08-01 .. 2024-12-30
 python hindcast_run.py --wave-file ../sinthe_waves.nc --end 2004-06-30   # synthetic waves
+python hindcast_run.py --set qscal=0.5 --set gamma=0.72                   # other model parameters
+python hindcast_run.py --help                  # all options and parameters, with their defaults
 python run_ensemble.py --set qscal=0.5,1,2 --end 2004-06-30 -j 3          # 3 runs in parallel
 python create_nc.py                            # rebuild the wave input (to python/output/)
 python -m pytest tests                         # tests against GNU Octave results
@@ -47,12 +49,12 @@ qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
 1,10,periodic,periodic,../input_25_contour.nc
 ```
 
-- **Keys.** A parameter set can override any ShorelineS setting the port
-  supports (MATLAB field names, case-insensitive: `qscal`, `d`, `d50`,
-  `gamma`, `ds0`, `ddeep`, `dnearshore`, `boundaryconditionstart`, …), plus
-  `start`, `end`, `wave_file` and `interval` (storage interval in days).
-  `--runs` and `--set` combine: every row of the file is run with every `--set`
-  combination.
+- **Keys.** A parameter set can set any of the parameters below (MATLAB field
+  names, case-insensitive), or any other ShorelineS setting the port supports.
+  Parameters it does not set keep their defaults. `--runs` and `--set`
+  combine: every row of the file is run with every `--set` combination.
+  `python run_ensemble.py --help` (or `hindcast_run.py --help`) prints this
+  table with the defaults computed from the code.
 - **Checks first.** Every set is checked before anything starts: unknown keys,
   options the port does not support, missing wave files and start dates before
   1999-08-01 stop the command with an error.
@@ -61,14 +63,59 @@ qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
 - **Failures.** A run that fails does not stop the others. Its traceback goes
   to `error.txt` in its folder, and its row in `summary.csv` is marked
   `failed`.
-- **Output** (in `--out-dir`, default `output/ensemble`):
-  - `run_<i>_<parameters>/` holds `output.mat` and `params.json`, plus
-    `project_output.png` with `--plot`;
-  - `summary.csv` has one row per run: the parameters, `status`, `steps`, the
-    run time, and model-vs-CoastSat statistics from `project_output`
-    (`rmse_m`, `bias_m`, `corr` over all compared points and times, and
-    `model_mean_abs_change_end_m`);
-  - `ensemble.json` records the parameter sets.
+- **Output** (in `--out-dir`, default `output/ensemble`). The values used are
+  recorded in three places:
+  - `run_<i>_<parameters>/output.mat` holds the model output `O`, and `S`
+    with every ShorelineS setting used (defaults filled in), as in the
+    MATLAB `output.mat`;
+  - `run_<i>_<parameters>/params.json` holds the parameter set as given, the
+    value of every parameter in the table, and every ShorelineS setting
+    (plus `project_output.png` with `--plot`, and `error.txt` if the run
+    failed);
+  - `summary.csv` has one row per run: `run`, `status`, then the parameters
+    that differ between runs, the statistics, and the value of every other
+    parameter in the table. The statistics are `steps`, the run times, and
+    the model-vs-CoastSat statistics from `project_output`: `rmse_m`,
+    `bias_m` and `corr` over all compared points and times, and
+    `model_mean_abs_change_end_m`.
+
+  `ensemble.json` records the command's defaults and parameter sets.
+  `hindcast_run.py` writes `output.mat` (with `S`) and `settings.json` to
+  its output folder in the same way.
+
+| Parameter | Default | Unit | Meaning |
+|---|---|---|---|
+| `start` | 1999-08-01 | date | start of the simulation; the initial coastline is the CoastSat/PCA coastline of this date |
+| `end` | 2024-12-30 | date | end of the simulation |
+| `wave_file` | input_25_contour.nc |  | wave input (NetCDF stations), e.g. ../sinthe_waves.nc for the synthetic waves |
+| `interval` | 30 | days | storage interval of the output |
+| `qscal` | 1 | - | calibration factor of the transport |
+| `d50` | 0.0001 | m | median grain diameter |
+| `gamma` | 0.5 | - | breaking coefficient Hs/h |
+| `porosity` | 0.4 | - | porosity of the sediment |
+| `tanbeta` | 0.03 | - | mean bed slope |
+| `rhos` | 2650 | kg/m3 | density of sand |
+| `rhow` | 1025 | kg/m3 | density of water |
+| `g` | 9.81 | m/s2 | gravitational acceleration |
+| `suppresshighangle` | 0 | 0/1 | limit the transport angle to the critical high angle |
+| `twopoints` | 1 | 0/1 | high-angle correction spread over two downdrift cells |
+| `maxangle` | 60 | deg | maximum coastline re-orientation between cells (smoothing of sharp angles) |
+| `ds0` | 75 | m | alongshore grid size |
+| `d` | 10 | m | active profile height |
+| `boundaryconditionstart` | closed |  | start of open sections: closed, periodic, neumann or fixed |
+| `boundaryconditionend` | closed |  | end of open sections: closed, periodic, neumann or fixed |
+| `ddeep` | 25 | m | water depth of the wave input |
+| `dnearshore` | 25 | m | depth of the nearshore point (refraction/shoaling down to here) |
+| `interpolationmethod` | alongshoremapping |  | wave stations to coast: alongshoremapping or weighted_distance |
+| `dt` | 1/(365·8) (3 h) | yr | fixed time step (1/(365*8) = 3 hours) |
+| `spitwidth` | 50 | m | critical spit width below which overwash occurs |
+| `owscale` | 0.1 | - | fraction of the overwash deficit moved per time step |
+| `owtimescale` | 0 | yr | overwash time scale (used instead of owscale when > 0) |
+| `bheight` | 2 | m | berm height used for overwash |
+| `spitdsf` | 8 | m | shoreface depth used for the spit width |
+| `spitdbb` | 4 | m | back-barrier depth used for the spit width |
+
+Fixed in this configuration: `trform = KAMP`, `tc = 0`, `griddingmethod = 2`.
 
 From Python: `run_ensemble.run_ensemble([{"qscal": 0.5}, {"qscal": 2}], "out", jobs=2)`
 returns the summary rows.
