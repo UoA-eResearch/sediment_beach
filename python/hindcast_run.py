@@ -21,7 +21,7 @@ COASTSAT_START = dt.date(1999, 8, 1)              # first CoastSat date (row 0 o
 
 
 def hindcast_settings(x_initial, y_initial, start="1999-08-01", end="2024-12-30",
-                      wave_file=os.path.join(REPO, "input_25_contour.nc"), interval=30,
+                      wave_file=os.path.join(REPO, "input_25_contour_av.nc"), interval=30,
                       out_dir="output"):
     """The ShorelineS settings (S) of the hindcast. Override entries to change the run."""
     return dict(
@@ -36,8 +36,7 @@ def hindcast_settings(x_initial, y_initial, start="1999-08-01", end="2024-12-30"
         d50=1.0e-4,                                   # median grain size [m]
         dt=1 / (365 * 8), tc=0,                       # fixed 3-hourly time step [yr]
         storageinterval=interval, outputdir=out_dir,
-        suppresshighangle=0,
-        gamma=0.5,                                    # breaking index Hs/h
+        suppresshighangle=0,                                
     )
 
 
@@ -53,7 +52,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--start", default="1999-08-01")
     ap.add_argument("--end", default="2024-12-30")
-    ap.add_argument("--out-dir", default=os.path.join(HERE, "output", "9_oct_closed"))
+    ap.add_argument("--out-dir", default=os.path.join(HERE, "output", "19_oct_closed_av"))
     ap.add_argument("--wave-file", default=os.path.join(REPO, "input_25_contour.nc"),
                     help="wave input (e.g. ../sinthe_waves.nc for the synthetic waves of sinth_waves.m)")
     ap.add_argument("--interval", type=float, default=30, help="storage interval of the output [days]")
