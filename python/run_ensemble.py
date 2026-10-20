@@ -14,16 +14,19 @@ sets side by side is how this workload uses several CPUs.
     # both: every row of the file combined with every --set value
     python run_ensemble.py --runs runs.csv --set wave_file=../sinthe_waves.nc,../input_25_contour.nc
 
-Besides the ShorelineS settings (qscal, d, d50, gamma, ds0, dnearshore,
-boundaryconditionstart, ...), a parameter set may contain
-start, end (dates), wave_file (wave input .nc) and interval (storage interval, days).
+A parameter set may contain any of the parameters listed below. A parameter
+it does not mention keeps its default; --start, --end, --wave-file and
+--interval change the defaults of those four for every run.
 
 Output (in --out-dir):
-    run_000_<params>/output.mat, params.json   one folder per run
-    run_000_<params>/project_output.png        with --plot
-    summary.csv                                one row per run: parameters,
-                                               status, run time and the
-                                               model-vs-CoastSat statistics
+    run_000_<params>/output.mat     model output O, and S: every setting used
+    run_000_<params>/params.json    the parameter set, the value of every
+                                    parameter below, and every ShorelineS setting
+    run_000_<params>/project_output.png   with --plot
+    summary.csv     one row per run: the value of every parameter below
+                    (the ones that differ between runs first), status,
+                    run time and the model-vs-CoastSat statistics
+    ensemble.json   the defaults and the parameter sets of the command
 """
 import os
 
@@ -44,12 +47,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed   # noqa: E402
 
 import numpy as np                                  # noqa: E402
 
-from hindcast_run import HERE, REPO, days_since_coastsat, hindcast_settings   # noqa: E402
+from hindcast_run import (HERE, RUN_DEFAULTS, HelpFormatter, check_parameters,  # noqa: E402
+                          days_since_coastsat, full_settings, hindcast_settings, parameter_help,
+                          parameter_values, split_params, write_settings)
 
-# Parameters handled by the runner itself (not ShorelineS settings)
-RUN_KEYS = {"start", "end", "wave_file", "interval"}
-BASE = dict(start="1999-08-01", end="2024-12-30",
-            wave_file=os.path.join(REPO, "input_25_contour.nc"), interval=30)
+BASE = RUN_DEFAULTS
 
 
 # ----------------------------------------------------------------------------
@@ -103,27 +105,6 @@ def expand(runs=None, grid=None):
     return out
 
 
-def _resolve(path):
-    if os.path.isabs(path) or os.path.exists(path):
-        return os.path.abspath(path)
-    return os.path.join(REPO, path) if os.path.exists(os.path.join(REPO, path)) else os.path.abspath(path)
-
-
-def split_params(params, base=None):
-    """(run options, ShorelineS overrides) of one parameter set."""
-    run = dict(BASE if base is None else base)
-    s_over = {}
-    for k, v in params.items():
-        key = k.replace("-", "_").lower()
-        if key in RUN_KEYS:
-            run[key] = v
-        else:
-            s_over[key.replace("_", "")] = v
-    run["wave_file"] = _resolve(str(run["wave_file"]))
-    run["interval"] = float(run["interval"])
-    return run, s_over
-
-
 def label(params):
     """Short folder-name label for a parameter set."""
     parts = []
@@ -136,20 +117,21 @@ def label(params):
 
 def validate(param_sets, base=None):
     """Check every parameter set before any run starts (unknown keys, unported options, files)."""
-    from shorelines.model import DEFAULTS, _check_supported, _normalise_keys
     for i, p in enumerate(param_sets):
         run, s_over = split_params(p, base)
-        unknown = sorted(k for k in s_over if k not in DEFAULTS)
-        if unknown:
-            raise ValueError(f"parameter set {i}: unknown setting(s) {unknown}")
-        days_since_coastsat(run["start"], run["end"])
-        if not os.path.exists(run["wave_file"]):
-            raise FileNotFoundError(f"parameter set {i}: wave file {run['wave_file']} not found")
-        S = dict(DEFAULTS)
-        S.update(_normalise_keys(hindcast_settings(None, None, run["start"], run["end"], run["wave_file"],
-                                                   run["interval"])))
-        S.update(s_over)
-        _check_supported(S)
+        check_parameters(run, s_over, f"parameter set {i}")
+
+
+def used_values(params, base=None):
+    """The value of every entry of PARAMETERS (and of any other key in `params`) for one run."""
+    run, s_over = split_params(params, base)
+    S = full_settings(run, s_over)
+    vals = parameter_values(run, S)
+    for k in params:
+        key = k.replace("-", "_").lower()
+        if key not in vals and key.replace("_", "") in S:
+            vals[key] = S[key.replace("_", "")]
+    return vals
 
 
 # ----------------------------------------------------------------------------
@@ -188,8 +170,8 @@ def run_one(i, params, out_root, base=None, project=True, plot=False):
     row = dict(run=i, out_dir=os.path.relpath(out_dir, out_root), status="ok", error="")
     t0 = time.perf_counter()
     try:
-        with open(os.path.join(out_dir, "params.json"), "w") as f:
-            json.dump(dict(params=params, run=run, shorelines=s_over), f, indent=2, default=str)
+        write_settings(os.path.join(out_dir, "params.json"), run, full_settings(run, s_over, out_dir=out_dir),
+                       parameter_set=params)
         dy, n_d = days_since_coastsat(run["start"], run["end"])
         x, y = _GRID["x"], _GRID["y"]
         x_initial, y_initial = np.array(x[dy]), np.array(y[dy])    # initial_grid: coastline on the start date
@@ -248,9 +230,8 @@ def run_ensemble(param_sets, out_dir, jobs=None, base=None, project=True, plot=F
     finally:
         shutil.rmtree(grid_dir, ignore_errors=True)
     rows.sort(key=lambda r: r["run"])
-    for r in rows:
-        r.update({f"param_{k}": v for k, v in param_sets[r["run"]].items()})
-    write_summary(rows, os.path.join(out_dir, "summary.csv"))
+    values = [used_values(p, base) for p in param_sets]
+    write_summary(rows, values, os.path.join(out_dir, "summary.csv"))
     if verbose:
         n_fail = sum(r["status"] != "ok" for r in rows)
         print(f"done in {time.perf_counter() - t0:.1f} s ({n_fail} failed); summary: "
@@ -258,29 +239,37 @@ def run_ensemble(param_sets, out_dir, jobs=None, base=None, project=True, plot=F
     return rows
 
 
-def write_summary(rows, path):
-    first = ["run", "status"]
-    params = sorted({k for r in rows for k in r if k.startswith("param_")})
-    rest = sorted({k for r in rows for k in r} - set(first) - set(params) - {"error", "out_dir"})
-    fields = first + params + rest + ["out_dir", "error"]
+def write_summary(rows, values, path):
+    """summary.csv: run, status, the parameter values used (those that differ between
+    runs first), the statistics, then the remaining parameters, out_dir and error."""
+    names = list(values[0]) if values else []
+    for v in values[1:]:
+        names += [k for k in v if k not in names]
+    varied = [k for k in names if len({json.dumps(v.get(k), default=str) for v in values}) > 1]
+    fixed = [k for k in names if k not in varied]
+    stats = sorted({k for r in rows for k in r} - {"run", "status", "out_dir", "error"})
+    fields = ["run", "status"] + varied + stats + fixed + ["out_dir", "error"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
-        for r in rows:
-            w.writerow(r)
+        for r, v in zip(rows, values):
+            w.writerow({**v, **r})
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, epilog=parameter_help(), formatter_class=HelpFormatter)
     ap.add_argument("--set", action="append", metavar="KEY=V1,V2,...",
                     help="parameter values; several --set options form a grid (Cartesian product)")
     ap.add_argument("--runs", help="JSON (list of objects) or CSV file with one parameter set per entry/row")
-    ap.add_argument("--start", default=BASE["start"], help="default start date of every run")
-    ap.add_argument("--end", default=BASE["end"], help="default end date of every run")
-    ap.add_argument("--wave-file", default=BASE["wave_file"], help="default wave input")
-    ap.add_argument("--interval", type=float, default=BASE["interval"], help="storage interval [days]")
-    ap.add_argument("--out-dir", default=os.path.join(HERE, "output", "ensemble"))
-    ap.add_argument("-j", "--jobs", type=int, default=None, help="number of processes (default: number of CPUs)")
+    ap.add_argument("--start", default=BASE["start"], help="start date of the runs that do not set one")
+    ap.add_argument("--end", default=BASE["end"], help="end date of the runs that do not set one")
+    ap.add_argument("--wave-file", default=BASE["wave_file"], help="wave input of the runs that do not set one")
+    ap.add_argument("--interval", type=float, default=BASE["interval"],
+                    help="storage interval [days] of the runs that do not set one")
+    ap.add_argument("--out-dir", default=os.path.join(HERE, "output", "ensemble"),
+                    help="output folder (default: python/output/ensemble)")
+    ap.add_argument("-j", "--jobs", type=int, default=None,
+                    help=f"number of processes (default: the number of CPUs, here {os.cpu_count()})")
     ap.add_argument("--no-project", action="store_true", help="skip project_output and the statistics")
     ap.add_argument("--plot", action="store_true", help="save project_output.png for every run")
     a = ap.parse_args(argv)

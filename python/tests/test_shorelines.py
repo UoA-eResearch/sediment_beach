@@ -231,9 +231,23 @@ def test_ensemble_runs_in_parallel(tmp_path):
     for r in rows:
         assert (tmp_path / r["out_dir"] / "output.mat").exists()
         assert r["steps"] == 9 and np.isfinite(r["rmse_m"])
+    import json
+    from hindcast_run import PARAMETERS
     with open(tmp_path / "summary.csv") as f:
-        summary = list(csv.DictReader(f))
-    assert [s["param_qscal"] for s in summary] == ["0.5", "2"]
+        reader = csv.DictReader(f)
+        summary = list(reader)
+    # every parameter is a column with the value used; the varied one comes first
+    assert reader.fieldnames[:3] == ["run", "status", "qscal"]
+    assert {name for name, _, _ in PARAMETERS} <= set(reader.fieldnames)
+    assert [s["qscal"] for s in summary] == ["0.5", "2"]
+    assert [s["gamma"] for s in summary] == ["0.5", "0.5"] and summary[0]["end"] == "1999-08-02"
+    for r, q in zip(rows, (0.5, 2)):
+        rec = json.loads((tmp_path / r["out_dir"] / "params.json").read_text())
+        assert rec["parameter_set"] == {"qscal": q}
+        assert rec["parameters"]["qscal"] == q and rec["parameters"]["d50"] == 1e-4
+        assert rec["shorelines_settings"]["trform"] == "KAMP"
+        S = scipy.io.loadmat(tmp_path / r["out_dir"] / "output.mat", squeeze_me=True, struct_as_record=False)["S"]
+        assert S.qscal == q and S.gamma == 0.5 and S.boundaryconditionstart == "closed"
     # larger qscal, more coastline change
     assert rows[1]["model_mean_abs_change_end_m"] > rows[0]["model_mean_abs_change_end_m"]
 
@@ -266,3 +280,16 @@ def test_merge_crossing_sections_matches_octave():
         np.testing.assert_array_equal(C["x_mc"], ref[k, 0].ravel())
         np.testing.assert_array_equal(C["y_mc"], ref[k, 1].ravel())
         assert np.isnan(C["x_mc"]).sum() < np.isnan(ev[k, 0]).sum()      # one section fewer
+
+
+def test_help_lists_every_parameter_with_its_default():
+    from hindcast_run import PARAMETERS, default_parameters, parameter_help
+    text = parameter_help()
+    defaults = default_parameters()
+    assert defaults["qscal"] == 1.0 and defaults["gamma"] == 0.5 and defaults["d50"] == 1e-4
+    assert defaults["boundaryconditionstart"] == "closed" and defaults["wave_file"] == "input_25_contour.nc"
+    lines = text.splitlines()
+    for name, _, _ in PARAMETERS:
+        line = next(ln for ln in lines if ln.split()[:1] == [name])
+        assert line.split()[1] == f"{defaults[name]:.6g}" if isinstance(defaults[name], float) \
+            else line.split()[1] == str(defaults[name])
