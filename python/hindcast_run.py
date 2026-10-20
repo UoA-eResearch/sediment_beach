@@ -23,7 +23,7 @@ COASTSAT_START = dt.date(1999, 8, 1)              # first CoastSat date (row 0 o
 
 # Defaults of the run options (not ShorelineS settings)
 # (wave_file: relative to the working directory, else to the repository)
-RUN_DEFAULTS = dict(start="1999-08-01", end="2024-12-30", wave_file="input_25_contour.nc", interval=30)
+RUN_DEFAULTS = dict(start="1999-08-01", end="2024-12-30", wave_file="input_25_contour_av.nc", interval=30)
 DEFAULT_OUT_DIR = os.path.join(HERE, "output", "9_oct_closed")
 
 # Parameters that can be changed (--set here, --set/--runs in run_ensemble.py):
@@ -69,11 +69,7 @@ RUN_KEYS = set(RUN_DEFAULTS)
 
 
 def hindcast_settings(x_initial, y_initial, start=RUN_DEFAULTS["start"], end=RUN_DEFAULTS["end"],
-                      wave_file=RUN_DEFAULTS["wave_file"], interval=RUN_DEFAULTS["interval"],
-
-def hindcast_settings(x_initial, y_initial, start="1999-08-01", end="2024-12-30",
-                      wave_file=os.path.join(REPO, "input_25_contour_av.nc"), interval=30,
-                      out_dir="output"):
+                      wave_file=RUN_DEFAULTS["wave_file"], interval=RUN_DEFAULTS["interval"], out_dir=DEFAULT_OUT_DIR):
     """The ShorelineS settings (S) of the hindcast. Override entries to change the run."""
     return dict(
         reftime=start, endofsimulation=end,
