@@ -240,14 +240,14 @@ def test_ensemble_runs_in_parallel(tmp_path):
     assert reader.fieldnames[:3] == ["run", "status", "qscal"]
     assert {name for name, _, _ in PARAMETERS} <= set(reader.fieldnames)
     assert [s["qscal"] for s in summary] == ["0.5", "2"]
-    assert [s["gamma"] for s in summary] == ["0.5", "0.5"] and summary[0]["end"] == "1999-08-02"
+    assert [s["gamma"] for s in summary] == ["0.72", "0.72"] and summary[0]["end"] == "1999-08-02"
     for r, q in zip(rows, (0.5, 2)):
         rec = json.loads((tmp_path / r["out_dir"] / "params.json").read_text())
         assert rec["parameter_set"] == {"qscal": q}
         assert rec["parameters"]["qscal"] == q and rec["parameters"]["d50"] == 1e-4
         assert rec["shorelines_settings"]["trform"] == "KAMP"
         S = scipy.io.loadmat(tmp_path / r["out_dir"] / "output.mat", squeeze_me=True, struct_as_record=False)["S"]
-        assert S.qscal == q and S.gamma == 0.5 and S.boundaryconditionstart == "closed"
+        assert S.qscal == q and S.gamma == 0.72 and S.boundaryconditionstart == "closed"
     # larger qscal, more coastline change
     assert rows[1]["model_mean_abs_change_end_m"] > rows[0]["model_mean_abs_change_end_m"]
 
@@ -286,8 +286,8 @@ def test_help_lists_every_parameter_with_its_default():
     from hindcast_run import PARAMETERS, default_parameters, parameter_help
     text = parameter_help()
     defaults = default_parameters()
-    assert defaults["qscal"] == 1.0 and defaults["gamma"] == 0.5 and defaults["d50"] == 1e-4
-    assert defaults["boundaryconditionstart"] == "closed" and defaults["wave_file"] == "input_25_contour.nc"
+    assert defaults["qscal"] == 1.0 and defaults["gamma"] == 0.72 and defaults["d50"] == 1e-4
+    assert defaults["boundaryconditionstart"] == "closed" and defaults["wave_file"] == "input_25_contour_av.nc"
     lines = text.splitlines()
     for name, _, _ in PARAMETERS:
         line = next(ln for ln in lines if ln.split()[:1] == [name])

@@ -91,6 +91,7 @@ location, so it can be run from any working directory.
 | `Astd_site2.mat` | `Astd.beach1..16`: standard deviation of the reconstruction (not used by the scripts). |
 | `unique_days.mat` | Helper date lists (not used by the scripts). |
 | `oceanum_paper2.nc` | Raw Oceanum wave hindcast at 48 nodes: `hs`, `tps`, `dpm`, `botl` (depth), `latitude`, `longitude`, `time` (hours since 1979-02-01). |
+| `input_25_contour_av.nc` | Wave input with the accumulated wave climate (same 94 stations and 74,265 times as `input_25_contour.nc`, different Hs, Tp and direction). Default of `python/hindcast_run.py`. |
 | `input_25_contour.nc` | Model wave input made by `create_nc.m`: 94 stations along the 25 m contour, 74,265 3-hourly records from 1999-08-01. (`create_nc.m` now writes `input_25_contour_opt.nc`.) |
 | `wave_data.mat` | The same interpolated waves as MATLAB arrays (v7.3). |
 | `sinthe_waves.nc`, `waves_sinth.mat` | Synthetic-direction waves from `sinth_waves.m` (same stations, times, Hs and Tp as `input_25_contour.nc`). |
@@ -138,7 +139,7 @@ The run settings used in this project (see `hindcast_run.m`):
 | `trform` | `KAMP` | Kamphuis transport formula |
 | `d` | 10 m | active profile height |
 | boundary conditions | `closed` | at both ends (Findings: `periodic`) |
-| `d50`, `gamma` | defaults 2·10⁻⁴ m, 0.72 | `python/hindcast_run.py` sets 10⁻⁴ m and 0.5 |
+| `d50`, `gamma` | defaults 2·10⁻⁴ m, 0.72 | `python/hindcast_run.py` sets `d50` = 10⁻⁴ m (and uses the default `gamma`) |
 | `storageinterval` | 30 days | output interval |
 | `plotinterval` | 240 steps (30 days) | plot/video interval |
 
@@ -474,9 +475,9 @@ Fixed (October 2026):
 Still open:
 
 - **MATLAB and Python settings differ.** `python/hindcast_run.py` sets
-  `d50 = 1e-4` and `gamma = 0.5` and uses `input_25_contour.nc`;
-  `hindcast_run.m` uses the defaults (`d50 = 2e-4`, `gamma = 0.72`) and
-  `sinthe_waves.nc`.
+  `d50 = 1e-4` and uses `input_25_contour_av.nc`; `hindcast_run.m` uses the
+  default `d50 = 2e-4` and `sinthe_waves.nc`. (Both use the default
+  `gamma = 0.72`.)
 - `eofs_code2.m` depends on functions that are not in the repository (see above).
 - GNU Octave's `movmean` ignores `'omitnan'` (it warns and includes NaN); MATLAB
   is fine.

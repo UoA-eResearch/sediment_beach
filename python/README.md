@@ -87,11 +87,11 @@ qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
 |---|---|---|---|
 | `start` | 1999-08-01 | date | start of the simulation; the initial coastline is the CoastSat/PCA coastline of this date |
 | `end` | 2024-12-30 | date | end of the simulation |
-| `wave_file` | input_25_contour.nc |  | wave input (NetCDF stations), e.g. ../sinthe_waves.nc for the synthetic waves |
+| `wave_file` | input_25_contour_av.nc |  | wave input (NetCDF stations), e.g. ../sinthe_waves.nc for the synthetic waves |
 | `interval` | 30 | days | storage interval of the output |
 | `qscal` | 1 | - | calibration factor of the transport |
 | `d50` | 0.0001 | m | median grain diameter |
-| `gamma` | 0.5 | - | breaking coefficient Hs/h |
+| `gamma` | 0.72 | - | breaking coefficient Hs/h |
 | `porosity` | 0.4 | - | porosity of the sediment |
 | `tanbeta` | 0.03 | - | mean bed slope |
 | `rhos` | 2650 | kg/m3 | density of sand |
