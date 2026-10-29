@@ -160,18 +160,20 @@ def transport_boundary_condition(TRANSP, COAST):
     QS0 = TRANSP["QS"].copy()
     QS = TRANSP["QS"]
     if not COAST["cyclic"]:
-        bs = TRANSP["boundaryconditionstart"].lower()
-        be = TRANSP["boundaryconditionend"].lower()
+        # 'Angleconstant'/'Gradient' act on the coastline angle (get_coastline_orientation)
+        bs, vs = TRANSP["boundaryconditionstart"]
+        be, ve = TRANSP["boundaryconditionend"]
+        bs, be = bs.lower(), be.lower()
         if bs == "periodic":
             QS[0] = (QS0[-2] + QS0[1]) / 2
         elif bs == "closed":
-            QS[0] = 0
+            QS[0] = 0 if np.isnan(vs) else vs      # {'Closed', Q}: fixed transport Q [m3/yr]
         elif bs in ("neumann", "fixed"):
             QS[0] = QS[1]
         if be == "periodic":
             QS[-1] = (QS0[-2] + QS0[1]) / 2
         elif be == "closed":
-            QS[-1] = 0
+            QS[-1] = 0 if np.isnan(ve) else ve
         elif be in ("neumann", "fixed"):
             QS[-1] = QS[-2]
     TRANSP["QS"] = QS

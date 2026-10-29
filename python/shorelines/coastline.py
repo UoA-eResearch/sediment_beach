@@ -170,17 +170,6 @@ def get_transportpoints(COAST, i_mc_range=None):
 
 
 # ---------------------------------------------------------------------------
-def get_smoothdata_angle(VAR):
-    """get_smoothdata(VAR,'angle',1): one pass of a [1 2 1]/4 vector smoothing."""
-    s = sind(VAR)
-    c = cosd(VAR)
-    savg = np.concatenate([s[:1], (s[:-1] + s[1:]) / 2, s[-1:]])
-    cavg = np.concatenate([c[:1], (c[:-1] + c[1:]) / 2, c[-1:]])
-    s2 = (savg[:-1] + savg[1:]) / 2
-    c2 = (cavg[:-1] + cavg[1:]) / 2
-    return mmod(atan2d(s2, c2), 360)
-
-
 def get_coastline_orientation(COAST):
     PHIc = mmod(360.0 - atan2d(np.diff(COAST["y"]), np.diff(COAST["x"])), 360)
     COAST["PHIcxy"] = mmod(360.0 - atan2d(np.diff(COAST["yq"]), np.diff(COAST["xq"])), 360)
@@ -196,14 +185,42 @@ def get_coastline_orientation(COAST):
         PHIc = np.concatenate([PHIc[-1:], PHIc, PHIc[:1]])
     else:
         PHIc = np.concatenate([PHIc[:1], PHIc, PHIc[-1:]])
-        for key in ("boundaryconditionstart", "boundaryconditionend"):
-            if COAST[key].lower() in ("angleconstant", "gradient"):
-                raise NotImplementedError(f"{key} {COAST[key]}")
-    if COAST["smoothrefrac"] > 0:
-        raise NotImplementedError("S.smoothrefrac")
+        # Angleconstant/Gradient: the boundary angle is held at its first value (or
+        # at the value given). As in ShorelineS, the value is stored in COAST and so
+        # shared by all sections and kept over the time steps.
+        for key, k in (("boundaryconditionstart", 0), ("boundaryconditionend", -1)):
+            bc = COAST[key]
+            if bc[0].lower() in ("angleconstant", "gradient"):
+                if np.isnan(bc[1]):
+                    bc[1] = float(PHIc[k])
+                else:
+                    PHIc[k] = bc[1]
     COAST["PHIc"] = PHIc
     COAST["PHIcs"] = PHIc
+    if COAST["smoothrefrac"] > 0:
+        # smoothed orientation, used only for the refraction from the nearshore point to breaking
+        COAST["PHIcs"] = get_smoothdata_angle(PHIc, min(COAST["smoothrefrac"], 1))
     return COAST
+
+
+def get_smoothdata_angle(VAR, smoothsteps=1):
+    """get_smoothdata(VAR, 'Angle', smoothsteps) for 0 < smoothsteps <= 1: one pass of
+    a [1 2 1]/4 smoothing of the angles (through sin/cos); for smoothsteps < 1 blended
+    with the original angles by the fraction smoothsteps."""
+    VAR = np.asarray(VAR, dtype=float).ravel()
+    if VAR.size == 0:
+        return VAR.copy()
+    sVAR = sind(VAR)
+    cVAR = cosd(VAR)
+    sVARavg = np.concatenate([sVAR[:1], (sVAR[:-1] + sVAR[1:]) / 2, sVAR[-1:]])
+    cVARavg = np.concatenate([cVAR[:1], (cVAR[:-1] + cVAR[1:]) / 2, cVAR[-1:]])
+    sVAR2 = (sVARavg[:-1] + sVARavg[1:]) / 2
+    cVAR2 = (cVARavg[:-1] + cVARavg[1:]) / 2
+    VAR2 = mmod(atan2d(sVAR2, cVAR2), 360)
+    if smoothsteps < 1:
+        alfa = smoothsteps
+        VAR2 = mmod(atan2d((1 - alfa) * sVAR + alfa * sVAR2, (1 - alfa) * cVAR + alfa * cVAR2), 360)
+    return VAR2
 
 
 def get_foreshore_orientation(COAST):

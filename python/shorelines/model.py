@@ -66,17 +66,38 @@ def _check_supported(S):
     if S["griddingmethod"] != 2:
         raise NotImplementedError("only griddingmethod 2 is ported")
     for key in ("boundaryconditionstart", "boundaryconditionend"):
-        if str(S[key]).lower() not in ("closed", "periodic", "neumann", "fixed"):
-            raise NotImplementedError(f"S.{key} = {S[key]!r}: only 'closed', 'periodic', 'neumann' and "
-                                      "'fixed' are ported")
+        boundary_condition(S[key], key)
     method = str(S["interpolationmethod"])
     if not any(w in method for w in ("weight", "distance", "alongshore", "mapping")):
         raise NotImplementedError(f"S.interpolationmethod = {method!r}: only 'alongshoremapping' and "
                                   "'weighted_distance' are ported")
-    if S["smoothrefrac"] > 0:
-        raise NotImplementedError("S.smoothrefrac is not supported by the Python port")
     if S["preserveorientation"] == 1:
         raise NotImplementedError("S.preserveorientation is not supported by the Python port")
+
+
+BOUNDARY_CONDITIONS = ("closed", "periodic", "neumann", "fixed", "angleconstant", "gradient")
+
+
+def boundary_condition(v, key="boundary condition"):
+    """S.boundaryconditionstart/end -> [name, value] (value NaN when not given), as
+    prepare_coastline.m/prepare_transport.m: 'Closed' or {'Closed', Q} (fixed transport
+    Q), 'Angleconstant' or {'Angleconstant', angle}, 'Periodic', 'Neumann', 'Fixed'.
+    [name, value] can also be given as 'name:value'."""
+    if isinstance(v, np.ndarray):
+        v = v.tolist()
+    if isinstance(v, (list, tuple)):
+        if not 1 <= len(v) <= 2:
+            raise ValueError(f"S.{key} = {v!r}: expected a name or [name, value]")
+        name, value = v[0], (v[1] if len(v) == 2 else np.nan)
+    elif isinstance(v, str) and ":" in v:          # 'closed:5000' (command-line form of {'Closed', 5000})
+        name, value = v.split(":", 1)
+    else:
+        name, value = v, np.nan
+    name = str(name).strip()
+    if name.lower() not in BOUNDARY_CONDITIONS:
+        raise NotImplementedError(f"S.{key} = {name!r}: expected one of {', '.join(BOUNDARY_CONDITIONS)}")
+    value = np.nan if value is None else float(value)
+    return [str(name), value]
 
 
 def settings_for_mat(S):
@@ -162,8 +183,8 @@ class ShorelineS:
             smoothrefrac=S["smoothrefrac"], PHIf0=None, tanbeta=S["tanbeta"],
             griddingmethod=S["griddingmethod"], maxangle=S["maxangle"],
             preserveorientation=S["preserveorientation"], PHIc0bnd=np.array([np.nan, np.nan]),
-            boundaryconditionstart=S["boundaryconditionstart"],
-            boundaryconditionend=S["boundaryconditionend"], xq_mc=np.zeros(0), yq_mc=np.zeros(0),
+            boundaryconditionstart=boundary_condition(S["boundaryconditionstart"]),
+            boundaryconditionend=boundary_condition(S["boundaryconditionend"]), xq_mc=np.zeros(0), yq_mc=np.zeros(0),
         )
 
         # ---- waves (prepare_waveconditions.m)
@@ -183,8 +204,8 @@ class ShorelineS:
                            gamma=S["gamma"], twopoints=S["twopoints"],
                            suppresshighangle=S["suppresshighangle"],
                            relaxationlength=S["relaxationlength"],
-                           boundaryconditionstart=S["boundaryconditionstart"],
-                           boundaryconditionend=S["boundaryconditionend"])
+                           boundaryconditionstart=boundary_condition(S["boundaryconditionstart"]),
+                           boundaryconditionend=boundary_condition(S["boundaryconditionend"]))
 
         # ---- spit / overwash (prepare_spit.m)
         owscale = S["owscale"] if S["owtimescale"] <= 0 else 0.0

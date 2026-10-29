@@ -49,12 +49,16 @@ PARAMETERS = [
     # coastline and grid
     ("ds0", "m", "alongshore grid size"),
     ("d", "m", "active profile height"),
-    ("boundaryconditionstart", "", "start of open sections: closed, periodic, neumann or fixed"),
-    ("boundaryconditionend", "", "end of open sections: closed, periodic, neumann or fixed"),
+    ("boundaryconditionstart", "", "start of open sections: closed, periodic, neumann, fixed (= neumann), "
+     "angleconstant or gradient (= angleconstant); closed:Q fixes the transport at Q m3/yr, "
+     "angleconstant:A the coastline angle at A degrees"),
+    ("boundaryconditionend", "", "end of open sections: as boundaryconditionstart"),
     # waves
     ("ddeep", "m", "water depth of the wave input"),
     ("dnearshore", "m", "depth of the nearshore point (refraction/shoaling down to here)"),
     ("interpolationmethod", "", "wave stations to coast: alongshoremapping or weighted_distance"),
+    ("smoothrefrac", "0-1", "smoothing of the coastline angle used only for the refraction from the "
+     "nearshore point to breaking (not for the transport)"),
     # time
     ("dt", "yr", "fixed time step (1/(365*8) = 3 hours)"),
     # overwash of narrow spits
