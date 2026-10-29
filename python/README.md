@@ -254,7 +254,9 @@ The reference is the repository's MATLAB code run in GNU Octave 8.4.
   arrive from the land side (see above). See
   `tests/test_shorelines.py::test_model_synthetic_waves_closed_matches_octave`.
 - **`initial_grid`** (with the earlier `A_site2.mat` PCA data): the initial coastline matches the one MATLAB stored in
-  `30_sept_int_w/output.mat` to 4e-9 m (all 609 points).
+  `30_sept_int_w/output.mat` to 4e-9 m (all 609 points). (That version kept
+  the transects left out of the PCA; the current `initial_grid` drops them, as
+  `initial_grid.m` does.)
 - **`create_nc`**: station positions match MATLAB's `input_25_contour.nc` to
   6e-8 m; Hs and Tp to ≤ 1.4e-10; wave direction to 2.5e-7°.
 

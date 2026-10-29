@@ -199,24 +199,16 @@ def initial_grid(beach, dy=None, n_d=None, data_dir=REPO, verbose=True):
 
 
 if __name__ == "__main__":
+    # python initial_grid.py: save g and the initial coordinates to g_initial.mat
     x, y, x_initial, y_initial, g = initial_grid(
         [2, 3], dy=0, n_d=9283
     )
-import scipy.io
-
-# Run initial_grid
-x, y, x_initial, y_initial, g = initial_grid(
-    [2, 3], dy=0, n_d=9283
-)
-
-# Save g and the initial coordinates to a MAT file
-scipy.io.savemat(
-    os.path.join(REPO, "g_initial.mat"),
-    {
-        "g": g,
-        "x_initial": x_initial,
-        "y_initial": y_initial
-    }
-)
-
-print("Saved:", os.path.join(REPO, "g_initial.mat"))
+    scipy.io.savemat(
+        os.path.join(REPO, "g_initial.mat"),
+        {
+            "g": g,
+            "x_initial": x_initial,
+            "y_initial": y_initial
+        }
+    )
+    print("Saved:", os.path.join(REPO, "g_initial.mat"))
