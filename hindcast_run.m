@@ -1,15 +1,14 @@
 
 clear all
 
-addpath(fullfile(fileparts(mfilename('fullpath')),'ShorelineS_functions')); %Add shorelineS model functions (folder next to this script)
+addpath('C:\Users\mpul348\Documents\code_paper2_optimized\ShorelineS_functions'); %Add shorelineS model functions (folder next to this script)
 S=struct;
 start = '1999-08-01'; S.reftime = start ;
-end_simul = '2004-6-30'; S.endofsimulation = end_simul;
-% (datenum rather than datetime, so that the script also runs in GNU Octave)
-ref_time = datenum(S.reftime,'yyyy-mm-dd');
-coastSat_start = datenum('1999-08-01','yyyy-mm-dd');
-n_d = datenum(end_simul,'yyyy-mm-dd') - ref_time;
-dy = ref_time - coastSat_start; %days since 1 august 1999, this parameter defines the initial coastline of the observed data for comparison
+end_simul = '2024-12-30'; S.endofsimulation = end_simul;
+ref_time = datetime(S.reftime);
+coastSat_start = datetime('1999-08-01');
+n_d = days(datetime(end_simul) - datetime(start));
+dy = days(ref_time - coastSat_start); %days since 1 august 1999, this parameter defines the initial coastline of the observed data for comparison
 site = 2; %embayment number
 interv = 30; %Time interval of storage output (in days)
 file_out = 'sinthetic_test'; %folder that will hold the model run output
@@ -57,7 +56,7 @@ S.plotinterval=8*30;
 S.fignryear=1;
 
 [S]=ShorelineS(S);
-project_output(x, y,file_out,dy,interv, x_initial, y_initial,n_d,'wave_data_av.mat'); %wave data matching S.wvcfile ('wave_data.mat' for input_25_contour.nc)       
+project_output(x, y,file_out,dy,interv, x_initial, y_initial,n_d);       
 
 %%% Add River input as nourishments record%%%
 %S.nourish=1;
