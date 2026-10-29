@@ -24,7 +24,7 @@ COASTSAT_START = dt.date(1999, 8, 1)              # first CoastSat date (row 0 o
 # Defaults of the run options (not ShorelineS settings)
 # (wave_file: relative to the working directory, else to the repository)
 RUN_DEFAULTS = dict(start="1999-08-01", end="2024-12-30", wave_file="input_25_contour_av.nc", interval=30)
-DEFAULT_OUT_DIR = os.path.join(HERE, "output", "19_oct_closed_av")
+DEFAULT_OUT_DIR = os.path.join(HERE, "output", "27_oct_closed_trselect")
 
 # Parameters that can be changed (--set here, --set/--runs in run_ensemble.py):
 # (name, unit, description). The defaults are taken from the code, see default_parameters().
@@ -49,16 +49,12 @@ PARAMETERS = [
     # coastline and grid
     ("ds0", "m", "alongshore grid size"),
     ("d", "m", "active profile height"),
-    ("boundaryconditionstart", "", "start of open sections: closed, periodic, neumann, fixed (= neumann), "
-     "angleconstant or gradient (= angleconstant); closed:Q fixes the transport at Q m3/yr, "
-     "angleconstant:A the coastline angle at A degrees"),
-    ("boundaryconditionend", "", "end of open sections: as boundaryconditionstart"),
+    ("boundaryconditionstart", "", "start of open sections: closed, periodic, neumann or fixed"),
+    ("boundaryconditionend", "", "end of open sections: closed, periodic, neumann or fixed"),
     # waves
     ("ddeep", "m", "water depth of the wave input"),
     ("dnearshore", "m", "depth of the nearshore point (refraction/shoaling down to here)"),
     ("interpolationmethod", "", "wave stations to coast: alongshoremapping or weighted_distance"),
-    ("smoothrefrac", "0-1", "smoothing of the coastline angle used only for the refraction from the "
-     "nearshore point to breaking (not for the transport)"),
     # time
     ("dt", "yr", "fixed time step (1/(365*8) = 3 hours)"),
     # overwash of narrow spits
@@ -87,8 +83,130 @@ def hindcast_settings(x_initial, y_initial, start=RUN_DEFAULTS["start"], end=RUN
         d50=1.0e-4,                                   # median grain size [m]
         dt=1 / (365 * 8), tc=0,                       # fixed 3-hourly time step [yr]
         storageinterval=interval, outputdir=out_dir,
-        suppresshighangle=0,
+        suppresshighangle=0,                                
     )
+
+
+def full_settings(run, overrides=None, x_initial=None, y_initial=None, out_dir="output"):
+    """Every ShorelineS setting of a run: the ShorelineS defaults, then the hindcast
+    settings, then `overrides` (setting names in lower case, without underscores)."""
+    from shorelines.model import DEFAULTS, _normalise_keys
+    S = dict(DEFAULTS)
+    S.update(_normalise_keys(hindcast_settings(x_initial, y_initial, run["start"], run["end"],
+                                               run["wave_file"], run["interval"], out_dir)))
+    S.update(overrides or {})
+    return S
+
+
+def parameter_values(run, S):
+    """{name: value} of PARAMETERS (run options and settings) for one run."""
+    vals = {}
+    for name, _, _ in PARAMETERS:
+        vals[name] = run[name] if name in RUN_KEYS else S[name]
+    vals["wave_file"] = display_path(resolve_path(str(vals["wave_file"])))
+    return vals
+
+
+def default_parameters():
+    """Default value of every entry of PARAMETERS."""
+    run = dict(RUN_DEFAULTS)
+    return parameter_values(run, full_settings(run))
+
+
+def display_path(path):
+    """Path relative to the repository when inside it (as shown in help texts and summaries)."""
+    path = os.path.abspath(str(path))
+    rel = os.path.relpath(path, REPO)
+    return path if rel.startswith("..") else rel
+
+
+def _fmt(v):
+    if isinstance(v, float):
+        return f"{v:.6g}"
+    return str(v)
+
+
+def parameter_help():
+    """The parameter table for --help texts: name, default value, unit and meaning."""
+    defaults = default_parameters()
+    lines = ["parameters (name, default, unit, meaning):"]
+    for name, unit, text in PARAMETERS:
+        lines.append(f"  {name:23s} {_fmt(defaults[name]):19s} {unit:6s} {text}")
+    lines.append("  fixed in this configuration: trform = KAMP, tc = 0, griddingmethod = 2; any other\n"
+                 "  ShorelineS setting the Python port supports can also be given (shorelines/model.py, DEFAULTS).")
+    return "\n".join(lines)
+
+
+def to_json(v):
+    """JSON-compatible value (numpy scalars and arrays included)."""
+    if isinstance(v, np.ndarray):
+        return v.tolist() if v.size <= 20 else f"<array of {v.size} values, see output.mat S>"
+    if isinstance(v, (np.floating, np.integer, np.bool_)):
+        return v.item()
+    if isinstance(v, float) and not np.isfinite(v):
+        return str(v)
+    return v
+
+
+def write_settings(path, run, S, parameter_set=None):
+    """settings.json/params.json: the parameter values used (PARAMETERS) and every ShorelineS setting."""
+    rec = {}
+    if parameter_set is not None:
+        rec["parameter_set"] = {k: to_json(v) for k, v in parameter_set.items()}
+    rec["parameters"] = {k: to_json(v) for k, v in parameter_values(run, S).items()}
+    rec["shorelines_settings"] = {k: to_json(v) for k, v in sorted(S.items())}
+    with open(path, "w") as f:
+        json.dump(rec, f, indent=2)
+
+
+def parse_assignments(items):
+    """['qscal=0.5', 'boundaryconditionstart=periodic'] -> {'qscal': 0.5, ...}."""
+    out = {}
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError(f"--set expects key=value, got {item!r}")
+        k, v = item.split("=", 1)
+        try:
+            v = json.loads(v.strip())
+        except ValueError:
+            v = v.strip()
+        out[k.strip()] = v
+    return out
+
+
+def split_params(params, base=None):
+    """(run options, ShorelineS overrides) of one parameter set."""
+    run = dict(RUN_DEFAULTS if base is None else base)
+    s_over = {}
+    for k, v in params.items():
+        key = k.replace("-", "_").lower()
+        if key in RUN_KEYS:
+            run[key] = v
+        else:
+            s_over[key.replace("_", "")] = v
+    run["wave_file"] = resolve_path(str(run["wave_file"]))
+    run["interval"] = float(run["interval"])
+    return run, s_over
+
+
+def resolve_path(path):
+    """A path as given, relative to the working directory, or relative to the repository."""
+    if os.path.isabs(path) or os.path.exists(path):
+        return os.path.abspath(path)
+    in_repo = os.path.join(REPO, path)
+    return in_repo if os.path.exists(in_repo) else os.path.abspath(path)
+
+
+def check_parameters(run, s_over, what="parameters"):
+    """Raise ValueError/FileNotFoundError/NotImplementedError for an unusable parameter set."""
+    from shorelines.model import DEFAULTS, _check_supported
+    unknown = sorted(k for k in s_over if k not in DEFAULTS)
+    if unknown:
+        raise ValueError(f"{what}: unknown setting(s) {unknown}")
+    days_since_coastsat(run["start"], run["end"])
+    if not os.path.exists(run["wave_file"]):
+        raise FileNotFoundError(f"{what}: wave file {run['wave_file']} not found")
+    _check_supported(full_settings(run, s_over))
 
 
 def full_settings(run, overrides=None, x_initial=None, y_initial=None, out_dir="output"):
@@ -235,7 +353,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, epilog=parameter_help(), formatter_class=HelpFormatter)
     ap.add_argument("--start", default=RUN_DEFAULTS["start"], help="start date")
     ap.add_argument("--end", default=RUN_DEFAULTS["end"], help="end date")
-    ap.add_argument("--out-dir", default=DEFAULT_OUT_DIR, help="output folder (default: python/output/19_oct_closed_av)")
+    ap.add_argument("--out-dir", default=DEFAULT_OUT_DIR, help="output folder (default: python/output/9_oct_closed)")
     ap.add_argument("--wave-file", default=RUN_DEFAULTS["wave_file"],
                     help="wave input (e.g. ../sinthe_waves.nc for the synthetic waves of sinth_waves.m)")
     ap.add_argument("--interval", type=float, default=RUN_DEFAULTS["interval"],
@@ -249,7 +367,7 @@ def main(argv=None):
     base = dict(start=a.start, end=a.end, wave_file=a.wave_file, interval=a.interval)
     try:
         run, s_over = split_params(parse_assignments(a.set), base)
-        check_parameters(run, s_over, "parameters")
+        check_parameters(run, s_over, "--set")
     except (ValueError, FileNotFoundError, NotImplementedError) as e:
         ap.error(str(e))
 

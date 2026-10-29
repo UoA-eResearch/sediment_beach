@@ -57,7 +57,7 @@ S.plotinterval=8*30;
 S.fignryear=1;
 
 [S]=ShorelineS(S);
-project_output(x, y,file_out,dy,interv, x_initial, y_initial,n_d,'waves_sinth.mat'); %wave data matching S.wvcfile ('wave_data.mat' for input_25_contour.nc)       
+project_output(x, y,file_out,dy,interv, x_initial, y_initial,n_d,'wave_data_av.mat'); %wave data matching S.wvcfile ('wave_data.mat' for input_25_contour.nc)       
 
 %%% Add River input as nourishments record%%%
 %S.nourish=1;
