@@ -302,6 +302,39 @@ for one run alone ([summary](results/ensemble_1999-2004_summary.csv)):
 the observed one; the correlation with CoastSat is ≈ 0.03–0.04 in all four
 runs.
 
+## How much of ShorelineS the Python port covers
+
+**49 of the 131 ShorelineS files (37 %) are ported**, which is 45 % of the
+9,060 code lines (comments and blank lines excluded):
+
+- 23 files fully;
+- 22 in part (the code paths of the supported options);
+- 4 folded into other Python code.
+
+Leaving out plotting, input files and utilities, which a Python run does not
+need, that is 49 of 114 files (43 %). The other 65 files are processes this
+project does not use:
+
+- structures and groynes, diffraction;
+- dunes, nourishments, mud, tides, inlet channels;
+- climate change, wave climates and wave fields, bathymetry updates.
+
+[`docs/shorelines_port_status.md`](docs/shorelines_port_status.md) lists
+every function, its status and its Python counterpart.
+
+For sensitivity analyses, all the model options of this configuration are
+ported and checked against Octave:
+
+- transport formulas `CERC`, `CERC2`, `CERC3`, `KAMP`, `MILH`, `VR14`;
+- all boundary conditions;
+- `smoothrefrac`, `relaxationlength`, `suppresshighangle`,
+  `sphimax = 'estimate'`;
+- a fixed `phif`, and a spatially varying `d`.
+
+See [python/README.md](python/README.md#options-for-sensitivity-analyses).
+`preserveorientation` fails in ShorelineS itself for this two-beach
+coastline.
+
 ## Performance
 
 ### How it was measured
@@ -465,6 +498,9 @@ Fixed (October 2026):
   `datenum` so the script also runs in GNU Octave.
 - **`python/hindcast_run.py`** had a syntax error (`gamma = 0.5;` inside
   `dict(...)`), and `python/initial_grid.py` still read `A_site2.mat`.
+- **Python port: `suppresshighangle`** was listed as a parameter but stopped the
+  run with `NotImplementedError`. It is ported now, with the other options of
+  the sensitivity analysis (see above).
 - **Python port: crossing sections.** With the synthetic waves
   (`sinthe_waves.nc`), beaches 2 and 3 grow into each other after about
   1.5 years. The Python port then stopped with `NotImplementedError: merging

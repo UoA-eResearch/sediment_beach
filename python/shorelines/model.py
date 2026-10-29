@@ -15,7 +15,7 @@ from . import coastline as cl
 from .geometry import find_shadows_mc
 from .mfuncs import (atan2d, cosd, datenum, datestr, get_cyclic, get_one_polygon, m_pow,
                      get_one_section, mmod, sind)
-from .transport import (get_smoothangles, get_upwindcorrection, transport,
+from .transport import (TRANSPORT_FORMULAS, get_smoothangles, get_upwindcorrection, transport,
                         transport_boundary_condition, transport_shadow_treat)
 from .waves import (introduce_wave, read_wave_stations, wave_angles,
                     wave_breakingheight, wave_refraction)
@@ -25,6 +25,7 @@ DEFAULTS = dict(
     ddeep=25.0, dnearshore=8.0, interpolationmethod="weighted_distance",
     xmc=None, ymc=None, ds0=100.0, griddingmethod=2, d=10.0, phif=None,
     maxangle=60.0, preserveorientation=0, trform="CERC", qscal=1.0,
+    b=1e6, pswell=20.0,
     d50=2.0e-4, porosity=0.4, tanbeta=0.03, rhos=2650.0, rhow=1025.0, g=9.81,
     gamma=0.72, relaxationlength=None, suppresshighangle=0, tc=1, dt=0.0,
     reftime="2020-01-01", endofsimulation="2040-01-01", twopoints=1,
@@ -54,15 +55,31 @@ def _check_supported(S):
     for key in ("xhard", "ldbstructures", "xrevet", "ldbrevetments", "xperm", "perm", "dune", "mud",
                 "nourish", "fnourish", "diffraction", "channel", "tideinteraction", "waveinteraction",
                 "xsedlim", "ldbsedlim", "ccslr", "cchs", "ccdir", "ldbcoastline", "transmission",
-                "xyout", "xyprofiles", "phif", "relaxationlength", "sphimax"):
+                "xyout", "xyprofiles"):
         if on(S.get(key)):
             raise NotImplementedError(f"S.{key} is not supported by the Python port")
     if S["tc"] != 0 or S["dt"] <= 0:
         raise NotImplementedError("only a fixed time step (S.tc = 0, S.dt > 0) is ported")
     if not S["wvcfile"] or not str(S["wvcfile"]).endswith(".nc"):
         raise NotImplementedError("wave input must be a NetCDF station file (S.wvcfile)")
-    if S["trform"].upper() != "KAMP":
-        raise NotImplementedError("only the KAMP transport formula is ported")
+    if str(S["trform"]).upper() not in TRANSPORT_FORMULAS:
+        raise NotImplementedError(f"S.trform = {S['trform']!r}: ported are {', '.join(TRANSPORT_FORMULAS)}")
+    sphimax = S.get("sphimax")
+    if sphimax is not None and np.size(sphimax):
+        if not (isinstance(sphimax, str) and sphimax.lower() == "estimate"):
+            raise NotImplementedError("S.sphimax: only 'estimate' (a numeric S.sphimax stops ShorelineS too: "
+                                      "WAVE.sphibrmax is then undefined)")
+    phif = S.get("phif")
+    if phif is not None and np.size(phif):
+        a = np.asarray(phif)
+        if isinstance(phif, (str, list, tuple, dict)) or not (a.ndim == 0 or (a.ndim == 2 and a.shape[1] == 3)):
+            raise NotImplementedError("S.phif: a single angle or an [N x 3] matrix [x, y, angle] (a file name "
+                                      "or {method, window} is not ported)")
+    if np.ndim(S["d"]) != 0 and not (np.ndim(S["d"]) == 2 and np.shape(S["d"])[1] == 3):
+        raise NotImplementedError("S.d: one value or an [N x 3] matrix [x, y, d] (a file name is not ported)")
+    rl = S.get("relaxationlength")
+    if rl is not None and np.size(rl) and not float(np.ravel(rl)[0]) > 0:
+        raise ValueError("S.relaxationlength must be > 0 (m)")
     if S["griddingmethod"] != 2:
         raise NotImplementedError("only griddingmethod 2 is ported")
     for key in ("boundaryconditionstart", "boundaryconditionend"):
@@ -71,8 +88,6 @@ def _check_supported(S):
     if not any(w in method for w in ("weight", "distance", "alongshore", "mapping")):
         raise NotImplementedError(f"S.interpolationmethod = {method!r}: only 'alongshoremapping' and "
                                   "'weighted_distance' are ported")
-    if S["preserveorientation"] == 1:
-        raise NotImplementedError("S.preserveorientation is not supported by the Python port")
 
 
 BOUNDARY_CONDITIONS = ("closed", "periodic", "neumann", "fixed", "angleconstant", "gradient")
@@ -179,8 +194,11 @@ class ShorelineS:
         x_mc, y_mc = x_mc[keep], y_mc[keep]
         self.COAST = dict(
             x_mc=x_mc, y_mc=y_mc, n_mc=int(np.sum(np.isnan(x_mc))) + 1,
-            h0input=S["d"], ds0=float(S["ds0"]), twopoints=S["twopoints"], smoothfac=S["smoothfac"],
-            smoothrefrac=S["smoothrefrac"], PHIf0=None, tanbeta=S["tanbeta"],
+            h0input=S["d"] if np.ndim(S["d"]) == 0 else np.asarray(S["d"], dtype=float),
+            ds0=float(S["ds0"]), twopoints=S["twopoints"], smoothfac=S["smoothfac"],
+            smoothrefrac=S["smoothrefrac"], tanbeta=S["tanbeta"],
+            PHIf0=(None if S["phif"] is None or np.size(S["phif"]) == 0 else
+                   (float(S["phif"]) if np.ndim(S["phif"]) == 0 else np.asarray(S["phif"], dtype=float))),
             griddingmethod=S["griddingmethod"], maxangle=S["maxangle"],
             preserveorientation=S["preserveorientation"], PHIc0bnd=np.array([np.nan, np.nan]),
             boundaryconditionstart=boundary_condition(S["boundaryconditionstart"]),
@@ -199,7 +217,8 @@ class ShorelineS:
                          interpolationmethod=S["interpolationmethod"], sphimax=S["sphimax"])
 
         # ---- transport (prepare_transport.m)
-        self.TRANSP = dict(trform=S["trform"], qscal=S["qscal"], d50=S["d50"], porosity=S["porosity"],
+        self.TRANSP = dict(trform=S["trform"], qscal=S["qscal"], b=S["b"], pswell=S["pswell"],
+                           d50=S["d50"], porosity=S["porosity"],
                            tanbeta=S["tanbeta"], rhos=S["rhos"], rhow=S["rhow"], g=S["g"],
                            gamma=S["gamma"], twopoints=S["twopoints"],
                            suppresshighangle=S["suppresshighangle"],
@@ -225,7 +244,9 @@ class ShorelineS:
         seg["ds"] = get_one_section(C["ds_mc"], i_mc)
         seg["h0"] = get_one_section(C["h0_mc"], i_mc)
         seg["PHIcxy0"] = get_one_section(C["PHIcxy0_mc"], i_mc)
-        QS, PHI, _, _, _ = get_one_polygon(T["QS_mc"], W["PHIbr_mc"], i_mc)
+        # get_segmentdata.m: CERC/CERC2 use the nearshore wave angle, the others the breaking angle
+        PHI_mc = W["PHItdp_mc"] if T["trform"].upper() in ("CERC", "CERC2") else W["PHIbr_mc"]
+        QS, PHI, _, _, _ = get_one_polygon(T["QS_mc"], PHI_mc, i_mc)
         seg["QS"] = QS
         seg["PHI"] = PHI
         seg["shadow"] = get_one_section(T["shadow_mc"], i_mc)
@@ -314,7 +335,8 @@ class ShorelineS:
             cl.get_coastline_orientation(C)
             cl.get_foreshore_orientation(C)
             cl.get_active_profile(C)
-            wave_refraction(W, C)
+            W["i_mc"] = C["i_mc"]                     # (introduce_wave.m)
+            wave_refraction(W, C, T)
             W["diff"] = np.zeros(C["nq"])
             W["dPHIo"] = atan2d(sind(C["PHIc"] - W["PHIo"]), cosd(C["PHIc"] - W["PHIo"]))
             W["dPHItdp"] = atan2d(sind(C["PHIcs"] - W["PHItdp"]), cosd(C["PHIcs"] - W["PHItdp"]))
@@ -337,6 +359,8 @@ class ShorelineS:
             if i_mc == C["n_mc"]:
                 C["x_mc"], C["y_mc"] = C["x1_mc"].copy(), C["y1_mc"].copy()
                 C["xq_mc"], C["yq_mc"] = C["xq1_mc"].copy(), C["yq1_mc"].copy()
+            if C["i_mc"] == C["n_mc"]:
+                W["dPHIcrit_mc0"] = W["dPHIcrit_mc"].copy()   # used by suppresshighangle next step
 
         # PHASE 2: coastline change
         for i_mc in range(1, C["n_mc"] + 1):

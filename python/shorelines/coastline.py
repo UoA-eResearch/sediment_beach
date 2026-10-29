@@ -33,7 +33,7 @@ def _tfloor(x, ct):
 
 
 def colon(base, inc, limit):
-    """Octave range ``base:inc:limit`` (positive increment)."""
+    """Octave range ``base:inc:limit``."""
     ct = 3.0 * _DBL_EPS
     n = int(_tfloor((limit - base + inc) / inc, ct))
     n = max(n, 0)
@@ -41,7 +41,7 @@ def colon(base, inc, limit):
         return np.zeros(0)
     r = base + np.arange(n) * inc
     final = base + (n - 1) * inc
-    if final > limit:
+    if (inc > 0 and final > limit) or (inc < 0 and final < limit):
         final = limit
     r[-1] = final
     r[0] = base
@@ -248,8 +248,9 @@ def get_foreshore_orientation(COAST):
         if COAST["i_mc"] == COAST["n_mc"]:
             PHIf0 = PHIf0[:, :3]
         COAST["PHIf0"] = PHIf0
-    elif np.isscalar(PHIf0):
-        raise NotImplementedError("S.phif scalar")
+    if np.isscalar(PHIf0):
+        COAST["PHIf"] = np.full(COAST["xq"].size, float(PHIf0))   # S.phif: one angle for the whole coast
+        return COAST
     PHIf0 = COAST["PHIf0"]
     method = "weighted_distance" if COAST["cyclic"] else "alongshore_mapping"
     _, var2i, _ = interpolate_on_grid(method, COAST["xq"], COAST["yq"], PHIf0[:, 0], PHIf0[:, 1],
@@ -259,7 +260,17 @@ def get_foreshore_orientation(COAST):
 
 
 def get_active_profile(COAST):
-    COAST["h0"] = np.full(COAST["n"], float(COAST["h0input"]))
+    """Active profile height h0 at the coastline points: S.d as one value, or an
+    [N x 3] matrix [x, y, d] interpolated with inverse-distance weights. (As in
+    ShorelineS, d is interpolated like an angle, through its sine and cosine.)"""
+    h0input = COAST["h0input"]
+    if np.ndim(h0input) == 0:
+        COAST["h0"] = np.full(COAST["n"], float(h0input))
+    else:
+        h = np.asarray(h0input, dtype=float)
+        _, var2i, _ = interpolate_on_grid("weighted_distance", COAST["x"], COAST["y"], h[:, 0], h[:, 1],
+                                          {}, {"h0_mc": h[:, 2][None, :]})
+        COAST["h0"] = var2i["h0_mc"][0]
     return COAST
 
 
@@ -294,9 +305,19 @@ def coastline_change(COAST, TRANSP, TIME):
     SLRo = 0.0
     dn = (dndt + (rate_density / h0) - SLRo / COAST["tanbeta"] + (q_tot / h0)) * TIME["dt"]
     if COAST["preserveorientation"] == 1:
-        raise NotImplementedError("S.preserveorientation")
-    dx = -dn * (y[ip1] - y[im1]) / (2 * ds)
-    dy = dn * (x[ip1] - x[im1]) / (2 * ds)
+        # move normal to the orientation of the initial grid (PHIcxy0) instead of the current coast
+        PHIcxy0 = np.asarray(COAST["PHIcxy0"], dtype=float)
+        k = np.arange(n) if COAST["cyclic"] else np.arange(1, n - 1)
+        if k.size and k[-1] >= PHIcxy0.size:
+            raise IndexError("S.preserveorientation: PHIcxy0 has fewer points than the coastline "
+                             "(as in ShorelineS, where this indexing fails too)")
+        dx = -dn * (y[ip1] - y[im1]) / (2 * ds)
+        dy = dn * (x[ip1] - x[im1]) / (2 * ds)
+        dx[k] = dn[k] * sind(PHIcxy0[k])
+        dy[k] = dn[k] * cosd(PHIcxy0[k])
+    else:
+        dx = -dn * (y[ip1] - y[im1]) / (2 * ds)
+        dy = dn * (x[ip1] - x[im1]) / (2 * ds)
     if not COAST["cyclic"]:
         dx[0] = dn[0] * sind(COAST["PHIc0bnd"][0])
         dy[0] = dn[0] * cosd(COAST["PHIc0bnd"][0])

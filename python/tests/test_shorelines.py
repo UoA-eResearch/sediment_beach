@@ -216,7 +216,7 @@ def test_ensemble_parameter_sets(tmp_path):
     with pytest.raises(ValueError, match="unknown setting"):
         re_.validate([{"qscall": 1}])
     with pytest.raises(NotImplementedError):
-        re_.validate([{"trform": "CERC"}])
+        re_.validate([{"trform": "RAY"}])
 
 
 def test_ensemble_runs_in_parallel(tmp_path):
@@ -283,7 +283,7 @@ def test_merge_crossing_sections_matches_octave():
 
 
 def test_help_lists_every_parameter_with_its_default():
-    from hindcast_run import PARAMETERS, default_parameters, parameter_help
+    from hindcast_run import PARAMETERS, _fmt, default_parameters, parameter_help
     text = parameter_help()
     defaults = default_parameters()
     assert defaults["qscal"] == 1.0 and defaults["gamma"] == 0.72 and defaults["d50"] == 1e-4
@@ -291,8 +291,7 @@ def test_help_lists_every_parameter_with_its_default():
     lines = text.splitlines()
     for name, _, _ in PARAMETERS:
         line = next(ln for ln in lines if ln.split()[:1] == [name])
-        assert line.split()[1] == f"{defaults[name]:.6g}" if isinstance(defaults[name], float) \
-            else line.split()[1] == str(defaults[name])
+        assert line.split()[1] == _fmt(defaults[name])
 
 
 @pytest.mark.parametrize("case, settings", [
@@ -324,3 +323,84 @@ def test_smoothrefrac_and_boundary_conditions_match_octave(tmp_path, case, setti
         a = getattr(ref, f)
         np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
         np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
+
+
+# Options for sensitivity analyses: each against 2 days of ShorelineS in GNU Octave 8.4.
+# The coastline is bit-identical, except in the cases that use the exact value of
+# the critical angle (get_Sphimax): its parabola fit is ill-conditioned near
+# convergence, so last-bit differences of the 3x3 solve grow to ~1e-7 deg (with
+# SHORELINES_EXACT_LIBM=1, which uses the system LAPACK like Octave, F10 and F11 are
+# bit-identical too). suppresshighangle then clips the angles to that value and adds
+# 1 % to the transport where the angle equals it exactly, a discontinuous rule that
+# turns those differences into centimetres (F06, F11).
+_D_XYD = [[1865023.6030439204, 5848190.137671227, 8.0], [1881127.2152420229, 5830048.109426575, 12.0], [1900633.8465522733, 5816429.303559587, 10.0]]
+SENSITIVITY_CASES = [
+    ("F01", dict(trform="CERC"), 0),
+    ("F02", dict(trform="CERC2"), 0),
+    ("F03", dict(trform="CERC3"), 0),
+    ("F04", dict(trform="MILH"), 0),
+    ("F05", dict(trform="VR14"), 0),
+    ("F06", dict(suppresshighangle=1), 0.05),
+    ("F07", dict(relaxationlength=500), 0),
+    ("F08", dict(phif=20), 0),
+    ("F10", dict(sphimax="estimate"), 1e-8),
+    ("F11", dict(trform="CERC3", qscal=0.3, suppresshighangle=1, relaxationlength=300), 0.05),
+    ("F12", dict(d=np.array(_D_XYD)), 0),
+]
+
+
+def _sensitivity_settings(tmp_path, settings):
+    c = scipy.io.loadmat(os.path.join(DATA, "synthetic_closed_input.mat"))
+    S = dict(reftime="1999-08-01", endofsimulation="1999-08-03", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
+             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
+             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", d50=1e-4, boundaryconditionstart="closed",
+             boundaryconditionend="closed", d=10, dt=1 / (365 * 8), tc=0, storageinterval=1,
+             outputdir=str(tmp_path), suppresshighangle=0)
+    S.update(settings)
+    return S
+
+
+@pytest.mark.parametrize("case, settings, tol", SENSITIVITY_CASES, ids=[c[0] for c in SENSITIVITY_CASES])
+def test_sensitivity_options_match_octave(tmp_path, case, settings, tol):
+    from shorelines import ShorelineS
+    O = ShorelineS(_sensitivity_settings(tmp_path, settings), verbose=False, save_output=False).run()
+    ref = scipy.io.loadmat(os.path.join(DATA, f"octave_sensitivity_{case}_2day_output.mat"), squeeze_me=False,
+                           struct_as_record=False)["O"][0, 0]
+    for f in ("x", "y", "x1", "y1", "n"):
+        a = getattr(ref, f)
+        if tol == 0:
+            np.testing.assert_array_equal(O[f], a, err_msg=f)
+        else:
+            np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
+            np.testing.assert_allclose(O[f], a, rtol=0, atol=tol, err_msg=f)
+    if tol == 0:
+        for f in ("QS", "HSbr", "PHIbr", "dPHIbr", "PHIc", "PHIf"):
+            a = getattr(ref, f)
+            np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
+
+
+def test_preserveorientation_fails_as_in_shorelines(tmp_path):
+    """With two sections, S.preserveorientation = 1 stops ShorelineS in Octave at the
+    third time step ('index (318): out of bound 317'); the port raises the same error."""
+    from shorelines import ShorelineS
+    with pytest.raises(IndexError, match="preserveorientation"):
+        ShorelineS(_sensitivity_settings(tmp_path, dict(preserveorientation=1)), verbose=False,
+                   save_output=False).run()
+
+
+def test_port_status_lists_every_shorelines_function():
+    """port_status.STATUS (docs/shorelines_port_status.md) covers every .m file, and the
+    Python functions it names exist."""
+    import importlib
+    import port_status
+    funcs = port_status.matlab_functions()
+    assert sorted(funcs) == sorted(port_status.STATUS)
+    for name, (status, where, _) in port_status.STATUS.items():
+        assert status in port_status.LABELS, name
+        for loc in filter(None, (w.strip() for w in where.split(","))):
+            mod, *attrs = loc.split(".")
+            obj = importlib.import_module(f"shorelines.{mod}")
+            for a in attrs:
+                obj = getattr(obj, a)
+    with open(os.path.join(REPO, "docs", "shorelines_port_status.md")) as f:
+        assert f.read() == port_status.markdown(), "rerun python port_status.py"

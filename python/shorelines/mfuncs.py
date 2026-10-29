@@ -14,7 +14,7 @@ import os as _os
 import numpy as np
 
 __all__ = [
-    "EXACT_LIBM", "m_sin", "m_exp", "m_sinh", "m_asin", "m_acos", "m_atan2",
+    "EXACT_LIBM", "lapack_solve", "m_sin", "m_exp", "m_sinh", "m_asin", "m_acos", "m_atan2",
     "m_hypot", "m_pow", "mmod", "sind", "cosd", "asind", "acosd", "atan2d", "interp1",
     "interp1_nearest_extrap", "interpNANs", "datenum", "datestr",
     "get_one_polygon", "insert_section", "get_clockpoly", "get_cyclic",
@@ -48,7 +48,43 @@ def _libm_ufunc(name, nin):
     return call
 
 
+def _system_dgesv():
+    """dgesv_ of the system LAPACK (the one Octave links), or None."""
+    name = _ctypes_util.find_library("lapack")
+    if not name:
+        return None
+    try:
+        f = _ctypes.CDLL(name).dgesv_
+    except (OSError, AttributeError):
+        return None
+    P = _ctypes.POINTER
+    f.argtypes = [P(_ctypes.c_int), P(_ctypes.c_int), P(_ctypes.c_double), P(_ctypes.c_int),
+                  P(_ctypes.c_int), P(_ctypes.c_double), P(_ctypes.c_int), P(_ctypes.c_int)]
+    f.restype = None
+    return f
+
+
+def lapack_solve(A, b):
+    """A \\ b (A n x n, b n) with the system LAPACK's dgesv (LU, as Octave's mldivide).
+    Returns None if no system LAPACK is found."""
+    if _DGESV is None:
+        return None
+    A = np.asfortranarray(np.asarray(A, dtype=float).copy())
+    x = np.asfortranarray(np.asarray(b, dtype=float).copy())
+    n = A.shape[0]
+    ipiv = (_ctypes.c_int * n)()
+    info = _ctypes.c_int(0)
+    one = _ctypes.c_int(1)
+    nn = _ctypes.c_int(n)
+    dp = _ctypes.POINTER(_ctypes.c_double)
+    _DGESV(_ctypes.byref(nn), _ctypes.byref(one), A.ctypes.data_as(dp), _ctypes.byref(nn), ipiv,
+           x.ctypes.data_as(dp), _ctypes.byref(nn), _ctypes.byref(info))
+    return x
+
+
+_DGESV = None
 if EXACT_LIBM:
+    _DGESV = _system_dgesv()
     m_sin = _libm_ufunc("sin", 1)
     m_exp = _libm_ufunc("exp", 1)
     m_sinh = _libm_ufunc("sinh", 1)
@@ -285,6 +321,16 @@ def msum(a):
     """MATLAB/Octave sum (sequential accumulation)."""
     a = np.asarray(a, dtype=float).ravel()
     return float(np.cumsum(a)[-1]) if a.size else 0.0
+
+
+def mstd(a):
+    """Octave std of a vector: sqrt(sumsq(x - mean(x)) / (n - 1)), with sequential sums."""
+    a = np.asarray(a, dtype=float).ravel()
+    n = a.size
+    if n < 2:
+        return 0.0 if n == 1 else np.nan
+    c = a - msum(a) / n
+    return float(np.sqrt(msum(c * c) / (n - 1)))
 
 
 def get_clockpoly(x, y):

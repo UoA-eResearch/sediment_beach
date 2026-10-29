@@ -5,7 +5,7 @@ wave_angles.m and get_Sphimax.m for the configuration used in this project."""
 import numpy as np
 import scipy.linalg
 
-from .mfuncs import (acosd, asind, atan2d, cosd, datenum, get_disper, interp1,
+from .mfuncs import (acosd, asind, atan2d, cosd, datenum, get_disper, get_one_section, interp1, lapack_solve, mstd, EXACT_LIBM,
                      interpNANs, m_hypot, m_pow, mmod, sind)
 from .transport import transport
 
@@ -252,8 +252,18 @@ def _real_asind(z):
     return out
 
 
-def wave_refraction(WAVE, COAST):
-    """Refract the offshore waves to the nearshore depth (Snell + shoaling)."""
+def wave_refraction(WAVE, COAST, TRANSP=None):
+    """Refract the offshore waves to the nearshore depth (Snell + shoaling).
+    Not for CERC, which uses the offshore waves."""
+    if TRANSP is not None and TRANSP["trform"].upper() == "CERC":
+        nq = COAST["nq"]
+        WAVE["PHItdp"] = WAVE["PHIo"]
+        WAVE["HStdp"] = WAVE["HSo"]
+        if np.size(WAVE["PHItdp"]) <= 1:
+            WAVE["PHItdp"] = np.full(nq, float(np.ravel(WAVE["PHItdp"])[0]))
+        if np.size(WAVE["HStdp"]) <= 1:
+            WAVE["HStdp"] = np.full(nq, float(np.ravel(WAVE["HStdp"])[0]))
+        return WAVE
     PHIf = COAST["PHIf"]
     relANGLE = mmod(WAVE["PHIo"] - PHIf + 180, 360) - 180
     off = np.abs(relANGLE) >= 89.999
@@ -288,10 +298,30 @@ def wave_breakingheight(WAVE, TRANSP):
     """Breaking wave height and angle by secant iteration of shoaling and
     refraction from the nearshore point to the breaker line (vectorised)."""
     eps = 1e-5
+    hbrmin = 0.05
     if TRANSP["suppresshighangle"] == 1:
-        raise NotImplementedError("suppresshighangle")
-    if TRANSP["trform"].upper() in ("RAY", "CERC", "CERC2"):
-        raise NotImplementedError(f"transport formula {TRANSP['trform']}")
+        # limit the nearshore angle to the critical angle of the previous time step
+        d = np.asarray(WAVE["dPHItdp"], dtype=float)
+        if "dPHIcrit_mc0" in WAVE:
+            dPHIcrit = get_one_section(WAVE["dPHIcrit_mc0"], WAVE["i_mc"])
+            nok = int(np.sum(~np.isnan(dPHIcrit)))
+            with np.errstate(invalid="ignore"):
+                if nok == d.size:
+                    d = np.sign(d) * np.fmin(np.abs(d), dPHIcrit)
+                elif nok >= 1:
+                    d = np.sign(d) * np.fmin(np.abs(d), np.median(dPHIcrit))   # NaN (no limit) if any NaN
+                else:
+                    d = np.sign(d) * np.fmin(np.abs(d), 45)
+        else:
+            d = np.sign(d) * np.fmin(np.abs(d), 45)
+        WAVE["dPHItdp"] = d
+    if TRANSP["trform"].upper() in ("CERC", "CERC1", "CERC2"):
+        # no breaking-wave computation: the transport uses the nearshore waves
+        WAVE["HSbr"] = np.asarray(WAVE["HStdp"], dtype=float)
+        WAVE["dPHIbr"] = np.asarray(WAVE["dPHItdp"], dtype=float)
+        WAVE["hbr"] = np.fmax(WAVE["HStdp"] / WAVE["gamma"], 0.1 * hbrmin)
+        _, WAVE["cbr"], _, WAVE["nbr"] = get_disper(WAVE["hbr"], WAVE["TP"])
+        return WAVE
     TP = np.asarray(WAVE["TP"], dtype=float)
     HStdp = np.asarray(WAVE["HStdp"], dtype=float)
     gamma = WAVE["gamma"]
@@ -338,7 +368,18 @@ def wave_breakingheight(WAVE, TRANSP):
 # Critical wave angle (maximum transport)
 # ---------------------------------------------------------------------------
 def _solve3(A, b):
-    """A[k] \\ b for a batch of 3x3 systems (LAPACK LU, as MATLAB's mldivide)."""
+    """A[k] \\ b for a batch of 3x3 systems (LAPACK LU, as MATLAB's mldivide). With
+    SHORELINES_EXACT_LIBM=1 the system LAPACK is used, as Octave does: the parabola fits
+    of get_Sphimax are ill-conditioned near convergence and magnify last-bit differences."""
+    if EXACT_LIBM:
+        out = np.empty_like(b)
+        for k in range(A.shape[0]):
+            r = lapack_solve(A[k], b[k])
+            if r is None:
+                break
+            out[k] = r
+        else:
+            return out
     try:
         return np.linalg.solve(A, b[..., None])[..., 0]
     except np.linalg.LinAlgError:
@@ -362,13 +403,13 @@ def get_Sphimax(WAVE, TRANSP):
     W1["dPHItdp"] = np.full(nq, 35.0)
     W1["HStdp"] = np.fmax(WAVE["HStdp"], eps)
     W1 = wave_breakingheight(W1, TRANSP)
-    QS1 = transport(TRANSP, W1)
+    QS1 = transport(TRANSP, W1, "QSmax")
     dPHI1 = W1["dPHItdp"].copy()
     W2 = dict(WAVE)
     W2["dPHItdp"] = np.full(nq, 45.0)
     W2["HStdp"] = np.fmax(WAVE["HStdp"], eps)
     W2 = wave_breakingheight(W2, TRANSP)
-    QS2 = transport(TRANSP, W2)
+    QS2 = transport(TRANSP, W2, "QSmax")
     dPHI2 = W2["dPHItdp"].copy()
     Wm = dict(W1)
     dPHIm = 0.5 * (dPHI1 + dPHI2)
@@ -381,7 +422,7 @@ def get_Sphimax(WAVE, TRANSP):
         it += 1
         Wm["dPHItdp"] = dPHIm
         Wm = wave_breakingheight(Wm, TRANSP)
-        QSm = transport(TRANSP, Wm)
+        QSm = transport(TRANSP, Wm, "QSmax")
         dPHImold = dPHIm.copy()
         inn = np.flatnonzero(err > eps)
         if inn.size:
@@ -419,9 +460,38 @@ def get_Sphimax(WAVE, TRANSP):
 def wave_angles(COAST, WAVE, TRANSP):
     nq = COAST["nq"]
     _, WAVE["ctdp"], _, WAVE["ntdp"] = get_disper(np.full(nq, WAVE["dnearshore"]), WAVE["TP"])
-    if WAVE.get("sphimax") not in (None, []) and np.size(WAVE["sphimax"]):
-        raise NotImplementedError("S.sphimax")
-    WAVE, TRANSP = get_Sphimax(WAVE, TRANSP)
+    # critical angle (maximum transport): fixed for CERC (45 deg) and CERC2 (42.39 deg),
+    # else from get_Sphimax, every time step or, with S.sphimax = 'estimate', once
+    WAVE["dPHIcrit"] = np.full(nq, 45.0)
+    WAVE["dPHIcritbr"] = np.full(nq, 45.0)
+    W0 = dict(WAVE)
+    TRANSP["QSmax"] = np.zeros(nq)
+    trform = TRANSP["trform"].upper()
+    sphimax = WAVE.get("sphimax")
+    if trform in ("CERC", "CERC2"):
+        WAVE["dPHIcrit"] = np.full(nq, 45.0 if trform == "CERC" else 42.39)
+        W0["dPHItdp"] = WAVE["dPHIcrit"]
+        TRANSP["QSmax"] = transport(TRANSP, W0, "QSmax")
+    elif sphimax is not None and np.size(sphimax) and not isinstance(sphimax, str):
+        # a value from 'estimate' (as ShorelineS stores it in WAVE.sphimax after the first call)
+        WAVE["dPHIcrit"] = np.full(nq, float(sphimax))
+        WAVE["dPHIcritbr"] = np.full(nq, float(WAVE["sphibrmax"]))
+        W0["dPHItdp"] = WAVE["dPHIcrit"]
+        W0["dPHIbr"] = WAVE["dPHIcritbr"]
+        TRANSP["QSmax"] = transport(TRANSP, W0, "QSmax")
+    elif sphimax is not None and np.size(sphimax):   # 'estimate'
+        WAVE, TRANSP = get_Sphimax(WAVE, TRANSP)
+        WAVE["sphimax"] = np.median(WAVE["dPHIcrit"]) - mstd(WAVE["dPHIcrit"])
+        WAVE["sphibrmax"] = np.median(WAVE["dPHIcritbr"]) - mstd(WAVE["dPHIcritbr"])
+    else:
+        WAVE, TRANSP = get_Sphimax(WAVE, TRANSP)
+    if TRANSP["suppresshighangle"] == 1:
+        with np.errstate(invalid="ignore"):
+            idx = np.abs(WAVE["dPHItdp"]) > WAVE["dPHIcrit"]
+            WAVE["dPHItdp"] = np.sign(WAVE["dPHItdp"]) * np.fmin(np.abs(WAVE["dPHItdp"]), WAVE["dPHIcrit"])
+            dbr = WAVE["dPHIbr"].copy()
+            dbr[idx] = np.sign(dbr[idx]) * np.fmin(np.abs(dbr[idx]), WAVE["dPHIcritbr"][idx])
+            WAVE["dPHIbr"] = dbr
     refraclimit = 180.0
     d = WAVE["dPHItdp"]
     d[(d - WAVE["dPHIo"]) < -refraclimit] = -refraclimit

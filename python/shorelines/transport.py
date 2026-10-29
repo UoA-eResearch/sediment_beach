@@ -1,27 +1,78 @@
 """Longshore sediment transport and its corrections. Ports of transport.m
-(Kamphuis formula), transport_shadow_treat.m, get_smoothangles.m,
+(CERC, CERC2, CERC3, KAMP, MILH, VR14), transport_shadow_treat.m, get_smoothangles.m,
 get_upwindcorrection.m and transport_boundary_condition.m."""
 import numpy as np
 
 from .mfuncs import cosd, m_pow, mmod, sind
 
 
-def transport(TRANSP, WAVE):
-    """Bulk longshore transport [m3/yr] at the transport points (Kamphuis 1991)."""
-    if TRANSP["trform"].upper() != "KAMP":
-        raise NotImplementedError(f"transport formula {TRANSP['trform']} (only KAMP is ported)")
-    HSbr = WAVE["HSbr"]
-    dPHIbr = WAVE["dPHIbr"]
-    TP = WAVE["TP"]
-    dHS = np.zeros(HSbr.size)
+TRANSPORT_FORMULAS = ("CERC", "CERC1", "CERC2", "CERC3", "KAMP", "MILH", "VR14")
+
+
+def transport(TRANSP, WAVE, field="QS"):
+    """Bulk longshore transport [m3/yr] at the transport points (transport.m):
+    CERC/CERC1 (simple CERC with S.b), CERC2 (CERC with implicit refraction),
+    CERC3 (CERC with breaking waves, Vitousek & Barnard 2015), KAMP (Kamphuis
+    1991), MILH (Mil-Homens et al. 2013) or VR14 (Van Rijn 2014).
+    `field` is 'QSmax' when called for the critical angle (no suppresshighangle factor)."""
     T = TRANSP
-    with np.errstate(invalid="ignore"):
-        QSkampmass = (T["qscal"] * 2.33 * T["rhos"] / (T["rhos"] - T["rhow"]) * m_pow(TP, 1.5)
-                      * m_pow(T["tanbeta"], 0.75) * m_pow(T["d50"], -0.25) * m_pow(HSbr, 2)
-                      * (m_pow(np.abs(sind(2 * dPHIbr)), 0.6) * np.sign(dPHIbr)
-                         - (2 / T["tanbeta"]) * cosd(dPHIbr) * dHS))
-        QS = T["qscal"] * 365 * 24 * 60 * 60 * (QSkampmass / T["rhos"]) / (1.0 - T["porosity"])
-        QS[np.abs(dPHIbr) > 90] = 0
+    trform = T["trform"].upper()
+    if trform not in TRANSPORT_FORMULAS:
+        raise NotImplementedError(f"transport formula {T['trform']} (ported: {', '.join(TRANSPORT_FORMULAS)})")
+    HStdp = np.asarray(WAVE["HStdp"], dtype=float)
+    dHS = np.zeros(HStdp.size)                       # only non-zero with diffraction (not ported)
+    # (constants multiplied in MATLAB's left-to-right order, for identical rounding)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        if trform in ("CERC", "CERC1"):
+            dPHItdp = WAVE["dPHItdp"]
+            QS = T["qscal"] * T["b"] * m_pow(HStdp, 2.5) * (sind(2 * dPHItdp) - 2 * cosd(dPHItdp) * dHS)
+            QS[np.abs(dPHItdp) > 90] = 0
+        elif trform == "CERC2":
+            dPHItdp = WAVE["dPHItdp"]
+            k = 0.39
+            b1 = k * (T["rhow"] * m_pow(T["g"], 0.5) / (16 * np.sqrt(T["gamma"]) * (T["rhos"] - T["rhow"])
+                                                        * (1 - T["porosity"])))
+            b2 = b1 * m_pow(m_pow(T["gamma"] * T["g"], 0.5) / (2 * np.pi), 0.2)
+            QS = (T["qscal"] * 365 * 24 * 60 * 60 * b2 * m_pow(HStdp, 12 / 5) * m_pow(WAVE["TP"], 1 / 5)
+                  * (m_pow(cosd(dPHItdp), 6 / 5) * sind(dPHItdp) - 2 * cosd(dPHItdp) * dHS))
+            QS[np.abs(dPHItdp) > 90] = 0
+        elif trform == "CERC3":
+            HSbr, dPHIbr = WAVE["HSbr"], WAVE["dPHIbr"]
+            k = 0.35
+            b3 = 1 / 16 * k * T["rhow"] / ((T["rhos"] - T["rhow"]) * (1 - T["porosity"]))
+            QS = (T["qscal"] * 365 * 24 * 60 * 60 * b3 * m_pow(T["g"], 0.5) * m_pow(T["gamma"], -0.52) * m_pow(HSbr, 2.5)
+                  * (sind(2 * dPHIbr) - 2 * cosd(dPHIbr) * dHS))
+            QS[np.abs(dPHIbr) > 90] = 0
+        elif trform == "KAMP":
+            HSbr, dPHIbr, TP = WAVE["HSbr"], WAVE["dPHIbr"], WAVE["TP"]
+            QSkampmass = (T["qscal"] * 2.33 * T["rhos"] / (T["rhos"] - T["rhow"]) * m_pow(TP, 1.5)
+                          * m_pow(T["tanbeta"], 0.75) * m_pow(T["d50"], -0.25) * m_pow(HSbr, 2)
+                          * (m_pow(np.abs(sind(2 * dPHIbr)), 0.6) * np.sign(dPHIbr)
+                             - (2 / T["tanbeta"]) * cosd(dPHIbr) * dHS))
+            QS = T["qscal"] * 365 * 24 * 60 * 60 * (QSkampmass / T["rhos"]) / (1.0 - T["porosity"])
+            QS[np.abs(dPHIbr) > 90] = 0
+        elif trform == "MILH":
+            HSbr, dPHIbr, TP = WAVE["HSbr"], WAVE["dPHIbr"], WAVE["TP"]
+            QSmilhmass = (T["qscal"] * 0.15 * T["rhos"] / (T["rhos"] - T["rhow"]) * m_pow(TP, 0.89)
+                          * m_pow(T["tanbeta"], 0.86) * m_pow(T["d50"], -0.69) * m_pow(HSbr, 2.75)
+                          * (m_pow(np.abs(sind(2 * dPHIbr)), 0.5) * np.sign(dPHIbr)
+                             - (2 / T["tanbeta"]) * cosd(dPHIbr) * dHS))
+            QS = T["qscal"] * 365 * 24 * 60 * 60 * (QSmilhmass / T["rhos"]) / (1.0 - T["porosity"])
+            QS[np.abs(dPHIbr) > 90] = 0
+        else:                                        # VR14
+            HSbr, dPHIbr = WAVE["HSbr"], WAVE["dPHIbr"]
+            vtide = 0
+            kswell = 0.015 * T["pswell"] + (1 - 0.01 * T["pswell"])
+            vwave = 0.3 * sind(2 * dPHIbr) * m_pow(T["g"] * HSbr, 0.5)
+            vtotal = vwave + vtide
+            QSvr14mass = (T["qscal"] * 0.0006 * kswell * T["rhos"] * m_pow(T["tanbeta"], 0.4)
+                          * m_pow(T["d50"], -0.6) * m_pow(HSbr, 2.6) * np.abs(vtotal) * np.sign(dPHIbr))
+            QS = 365 * 24 * 60 * 60 * (QSvr14mass / T["rhos"]) / (1.0 - T["porosity"])
+            QS[np.abs(dPHIbr) > 90] = 0
+    QS = np.asarray(QS, dtype=float)
+    if field == "QS" and T["suppresshighangle"] == 1:
+        idx = WAVE["dPHItdp"] == WAVE["dPHIcrit"]
+        QS[idx] = 1.01 * QS[idx]
     return QS
 
 
@@ -30,6 +81,8 @@ def transport_shadow_treat(COAST, WAVE, TRANSP, find_shadows_mc):
     QS = TRANSP["QS"].copy()
     with np.errstate(invalid="ignore"):
         shadowS_90deg = np.abs(WAVE["dPHItdp"]) > 2 * WAVE["dPHIcrit"]
+    if TRANSP["trform"].upper() == "CERC":
+        WAVE["PHIbr"] = WAVE["PHItdp"]                  # CERC uses the nearshore angle
     shadowS = find_shadows_mc(COAST["xq"], COAST["yq"], COAST["x_mc"], COAST["y_mc"],
                               WAVE["PHIo"], WAVE["PHItdp"], WAVE["PHIbr"], WAVE["dist"])
     shadowS = shadowS | shadowS_90deg
@@ -97,12 +150,19 @@ def _get_mod(x, y):
 def get_upwindcorrection(COAST, WAVE, TRANSP):
     """Upwind correction for high-angle wave instability: where the wave angle
     exceeds the critical angle, the transport is set to the maximum transport
-    of the upwind point (sequential sweep in both directions)."""
-    if TRANSP.get("relaxationlength") not in (None, []) and np.size(TRANSP["relaxationlength"]):
-        raise NotImplementedError("S.relaxationlength")
+    of the upwind point (sequential sweep in both directions). With
+    S.relaxationlength [m], the transport also adapts gradually (over that
+    length) to a decrease downdrift (relaxationmethod 2 of ShorelineS)."""
+    from .coastline import colon                     # (coastline imports this module's users)
+    relax = TRANSP.get("relaxationlength")
+    relax = None if relax is None or np.size(relax) == 0 else float(np.asarray(relax).ravel()[0])
     maxangle = max(COAST["maxangle"], 60)
     nq = COAST["nq"]
+    dsq = COAST["dsq"]
     QS = TRANSP["QS"].copy()
+    QS0 = TRANSP["QS"].copy()
+    QS1 = QS0.copy()
+    QS2 = QS0.copy()
     QSmax = TRANSP["QSmax"]
     dPHItdp = WAVE["dPHItdp"]
     dPHIcrit = WAVE["dPHIcrit"]
@@ -123,8 +183,8 @@ def get_upwindcorrection(COAST, WAVE, TRANSP):
                 iirange = iirange[::-1]
             cwd = cw * dPHIcr
             for i in iirange:
-                if not cwd[i - 1] > 0:
-                    continue
+                if relax is None and not cwd[i - 1] > 0:
+                    continue                         # (nothing to do at this point)
                 if COAST["cyclic"]:
                     im1 = _get_mod(i - 1 * cw, nq)
                     ip1 = _get_mod(i + 1 * cw, nq)
@@ -137,7 +197,18 @@ def get_upwindcorrection(COAST, WAVE, TRANSP):
                     ip1 = max(i - 1, 1)
                     ip2 = max(i - 2, 1)
                     im1 = min(i + 1, nq)
-                cond = ((cwd[im1 - 1] <= 0 or (cw * QS[im1 - 1] > 0 and (cwd[im1 - 1] - cwd[i - 1]) < -maxangle))
+                if relax is not None:
+                    fac0 = dsq[min(i, dsq.size) - 1] / relax
+                    fac1 = colon(1.0, -fac0, 0.0)
+                    ind = np.minimum(np.maximum(i - cw * np.round(colon(0.0, 1.0, 1 / fac0)), 1), nq).astype(int)
+                    if QS0[im1 - 1] > 0 and QS0[i - 1] >= 0 and cw == 1:
+                        QS1[i - 1] = _mmax(QS0[i - 1] + np.fmax(QS1[ind - 1] - QS0[i - 1], 0) * fac1)
+                    elif QS0[im1 - 1] < 0 and QS0[i - 1] <= 0 and cw == -1:
+                        QS2[i - 1] = _mmin(QS0[i - 1] + np.fmin(QS2[ind - 1] - QS0[i - 1], 0) * fac1)
+                    if cw == -1:
+                        QS[i - 1] = QS1[i - 1] + QS2[i - 1] - QS0[i - 1]
+                cond = (cwd[i - 1] > 0
+                        and (cwd[im1 - 1] <= 0 or (cw * QS[im1 - 1] > 0 and (cwd[im1 - 1] - cwd[i - 1]) < -maxangle))
                         and not shadowS[im1 - 1]
                         and (shadowS_h.size == 0 or (not shadowS_h[ip1 - 1] and not shadowS_h[ip2 - 1]))
                         and idrev[i - 1] == 0 and idrev[min(max(i - cw, 1), nq) - 1] == 0)
@@ -151,9 +222,24 @@ def get_upwindcorrection(COAST, WAVE, TRANSP):
                         QS[ip1 - 1] = QS[ip1 - 1] + cf * cw * max(0.0, (cw * QS[i - 1] - cw * QS[ip1 - 1]) / 2)
                         QS[ip2 - 1] = QS[ip2 - 1] + cf * cw * max(0.0, (cw * QS[ip1 - 1] - cw * QS[ip2 - 1]) / 2)
                     ivals[i - 1] = cw
+                    QSk = QS1 if cw == 1 else QS2
+                    QSk[i - 1] = QS[i - 1]
+                    QSk[ip1 - 1] = QS[ip1 - 1]
+                    QSk[ip2 - 1] = QS[ip2 - 1]
     TRANSP["QS"] = QS
     TRANSP["ivals"] = ivals
     return TRANSP
+
+
+def _mmax(a):
+    """MATLAB max of a vector (NaNs ignored unless all are NaN)."""
+    a = np.asarray(a, dtype=float)
+    return np.nan if a.size == 0 or np.all(np.isnan(a)) else float(np.nanmax(a))
+
+
+def _mmin(a):
+    a = np.asarray(a, dtype=float)
+    return np.nan if a.size == 0 or np.all(np.isnan(a)) else float(np.nanmin(a))
 
 
 def transport_boundary_condition(TRANSP, COAST):

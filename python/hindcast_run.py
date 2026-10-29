@@ -35,7 +35,11 @@ PARAMETERS = [
     ("wave_file", "", "wave input (NetCDF stations), e.g. ../sinthe_waves.nc for the synthetic waves"),
     ("interval", "days", "storage interval of the output"),
     # transport
+    ("trform", "", "transport formula: KAMP (Kamphuis), CERC (S.b), CERC2, CERC3, MILH (Mil-Homens) or "
+     "VR14 (Van Rijn 2014, S.pswell)"),
     ("qscal", "-", "calibration factor of the transport"),
+    ("b", "m3/yr", "CERC coefficient (trform CERC)"),
+    ("pswell", "%", "percentage swell (trform VR14)"),
     ("d50", "m", "median grain diameter"),
     ("gamma", "-", "breaking coefficient Hs/h"),
     ("porosity", "-", "porosity of the sediment"),
@@ -46,9 +50,18 @@ PARAMETERS = [
     ("suppresshighangle", "0/1", "limit the transport angle to the critical high angle"),
     ("twopoints", "0/1", "high-angle correction spread over two downdrift cells"),
     ("maxangle", "deg", "maximum coastline re-orientation between cells (smoothing of sharp angles)"),
+    ("relaxationlength", "m", "length over which the transport adapts to a decrease downdrift "
+     "(none: no relaxation)"),
+    ("sphimax", "", "critical (maximum-transport) wave angle: none = computed every time step, "
+     "estimate = computed once"),
     # coastline and grid
     ("ds0", "m", "alongshore grid size"),
-    ("d", "m", "active profile height"),
+    ("d", "m", "active profile height: one value, or [[x, y, d], ...] interpolated along the coast "
+     "(give that in a --runs JSON file)"),
+    ("phif", "deg", "foreshore orientation: none = smoothed initial coastline, or one angle, or "
+     "[[x, y, angle], ...]"),
+    ("preserveorientation", "0/1", "move the coastline normal to the initial grid (fails in ShorelineS "
+     "for coasts of several sections)"),
     ("boundaryconditionstart", "", "start of open sections: closed, periodic, neumann, fixed (= neumann), "
      "angleconstant or gradient (= angleconstant); closed:Q fixes the transport at Q m3/yr, "
      "angleconstant:A the coastline angle at A degrees"),
@@ -125,6 +138,8 @@ def display_path(path):
 
 
 def _fmt(v):
+    if v is None:
+        return "none"
     if isinstance(v, float):
         return f"{v:.6g}"
     return str(v)
@@ -136,7 +151,7 @@ def parameter_help():
     lines = ["parameters (name, default, unit, meaning):"]
     for name, unit, text in PARAMETERS:
         lines.append(f"  {name:23s} {_fmt(defaults[name]):19s} {unit:6s} {text}")
-    lines.append("  fixed in this configuration: trform = KAMP, tc = 0, griddingmethod = 2; any other\n"
+    lines.append("  fixed in this configuration: tc = 0, griddingmethod = 2; any other\n"
                  "  ShorelineS setting the Python port supports can also be given (shorelines/model.py, DEFAULTS).")
     return "\n".join(lines)
 
