@@ -102,11 +102,12 @@ qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
 | `maxangle` | 60 | deg | maximum coastline re-orientation between cells (smoothing of sharp angles) |
 | `ds0` | 75 | m | alongshore grid size |
 | `d` | 10 | m | active profile height |
-| `boundaryconditionstart` | closed |  | start of open sections: closed, periodic, neumann or fixed |
-| `boundaryconditionend` | closed |  | end of open sections: closed, periodic, neumann or fixed |
+| `boundaryconditionstart` | closed |  | start of open sections: closed, periodic, neumann, fixed (= neumann), angleconstant or gradient (= angleconstant); closed:Q fixes the transport at Q m3/yr, angleconstant:A the coastline angle at A degrees |
+| `boundaryconditionend` | closed |  | end of open sections: as boundaryconditionstart |
 | `ddeep` | 25 | m | water depth of the wave input |
 | `dnearshore` | 25 | m | depth of the nearshore point (refraction/shoaling down to here) |
 | `interpolationmethod` | alongshoremapping |  | wave stations to coast: alongshoremapping or weighted_distance |
+| `smoothrefrac` | 0 | 0-1 | smoothing of the coastline angle used only for the refraction from the nearshore point to breaking (not for the transport) |
 | `dt` | 1/(365·8) (3 h) | yr | fixed time step (1/(365*8) = 3 hours) |
 | `spitwidth` | 50 | m | critical spit width below which overwash occurs |
 | `owscale` | 0.1 | - | fraction of the overwash deficit moved per time step |
@@ -149,7 +150,13 @@ covers the processes that `hindcast_run.m` switches on, plus closed
 - refraction/shoaling to `S.dnearshore`, iterative breaking height,
   critical wave angle (`get_Sphimax`), Kamphuis (`KAMP`) transport;
 - shadowing by the coastline itself, smoothing at sharp angles, upwind
-  correction for high-angle waves, `periodic`/`closed`/`neumann` boundaries;
+  correction for high-angle waves;
+- all ShorelineS boundary conditions of open sections: `closed` (or
+  `{'Closed', Q}`, a fixed transport), `periodic`, `neumann`, `fixed` (the same
+  as `neumann` in ShorelineS), `angleconstant`/`gradient` (or
+  `{'Angleconstant', angle}`); on the command line `closed:Q`/`angleconstant:A`;
+- `smoothrefrac`: smoothed coastline angle for the refraction from the
+  nearshore point to breaking;
 - coastline change, overwash of narrow spits, removal of self-intersecting
   loops, merging of sections (also sections that cross each other, e.g. two
   beaches growing into each other: `shorelines/merge.py`), NaN cleanup;
@@ -229,6 +236,15 @@ The reference is the repository's MATLAB code run in GNU Octave 8.4.
 
   305 of these cases merge. See
   `tests/test_shorelines.py::test_merge_crossing_sections_matches_octave`.
+- **`smoothrefrac` and the boundary conditions, 2 days each**:
+  - `smoothrefrac` 0.5 and 1;
+  - `Angleconstant` at both ends;
+  - `Fixed` at both ends;
+  - `{'Closed', 5000}` with `{'Gradient', 200}` and `smoothrefrac` 0.3.
+
+  In all five, the coastline is bit-identical to Octave's, and each option
+  moves the coastline 0.7–4.9 m away from the plain closed run. See
+  `tests/test_shorelines.py::test_smoothrefrac_and_boundary_conditions_match_octave`.
 - **`get_intersections`**: bit-identical to Octave on 400 random cases
   (NaN separators, vertical segments, self-intersections).
 - **Current `hindcast_run` settings, 2 days** (start 1999-08-01, closed

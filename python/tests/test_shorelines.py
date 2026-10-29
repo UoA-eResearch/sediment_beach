@@ -293,3 +293,34 @@ def test_help_lists_every_parameter_with_its_default():
         line = next(ln for ln in lines if ln.split()[:1] == [name])
         assert line.split()[1] == f"{defaults[name]:.6g}" if isinstance(defaults[name], float) \
             else line.split()[1] == str(defaults[name])
+
+
+@pytest.mark.parametrize("case, settings", [
+    ("A", dict(smoothrefrac=0.5)),
+    ("B", dict(smoothrefrac=1)),
+    ("C", dict(boundaryconditionstart="Angleconstant", boundaryconditionend="Angleconstant")),
+    ("D", dict(boundaryconditionstart="Fixed", boundaryconditionend="Fixed")),
+    ("E", dict(boundaryconditionstart=["Closed", 5000], boundaryconditionend="gradient:200", smoothrefrac=0.3)),
+])
+def test_smoothrefrac_and_boundary_conditions_match_octave(tmp_path, case, settings):
+    """smoothrefrac and the boundary conditions Angleconstant/Gradient, Fixed and
+    {'Closed', Q}: 2 days compared with ShorelineS in GNU Octave 8.4 (case E gives
+    {'Gradient', 200} as 'gradient:200', the command-line form)."""
+    from shorelines import ShorelineS
+    c = scipy.io.loadmat(os.path.join(DATA, "synthetic_closed_input.mat"))
+    S = dict(reftime="1999-08-01", endofsimulation="1999-08-03", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
+             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
+             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", d50=1e-4, boundaryconditionstart="closed",
+             boundaryconditionend="closed", d=10, dt=1 / (365 * 8), tc=0, storageinterval=1,
+             outputdir=str(tmp_path), suppresshighangle=0)
+    S.update(settings)
+    O = ShorelineS(S, verbose=False, save_output=False).run()
+    ref = scipy.io.loadmat(os.path.join(DATA, f"octave_bc_smoothrefrac_{case}_2day_output.mat"), squeeze_me=False,
+                           struct_as_record=False)["O"][0, 0]
+    for f in ("x", "y", "x1", "y1", "distx", "n"):
+        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
+    # waves at angles near 90 degrees magnify last-bit libm differences (see above)
+    for f in ("QS", "dSds", "HSo", "PHIo", "TP", "HS", "PHI", "HSbr", "PHIbr", "dPHIbr", "hbr", "PHIc"):
+        a = getattr(ref, f)
+        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
+        np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
