@@ -117,13 +117,16 @@ output to `fullfile(pwd, S.outputdir, S.outputfile)`, so `S.outputdir`
 ### `ShorelineS/` (git submodule)
 
 The ShorelineS model (IHE Delft & Deltares, LGPL-2.1). The submodule points at
-the branch `speed-optimisations` of
+the branch `sediment-beach` of
 [UoA-eResearch/shorelines](https://github.com/UoA-eResearch/shorelines), a fork
 of [danoroelvink/shorelines](https://github.com/danoroelvink/shorelines). That
-branch is the latest upstream version (commit `f3ec863`, August 2026) plus the
-speed optimisations described under [Performance](#performance), which are
-offered upstream in
-[UoA-eResearch/shorelines#1](https://github.com/UoA-eResearch/shorelines/pull/1).
+branch is the latest upstream version (commit `f3ec863`, August 2026) plus:
+
+- the speed optimisations described under [Performance](#performance)
+  (branch `speed-optimisations`, offered upstream in
+  [UoA-eResearch/shorelines#1](https://github.com/UoA-eResearch/shorelines/pull/1));
+- a fix that stores the end of every run (branch `fix-final-output`, see
+  [below](#update-to-the-latest-shorelines-september-2025)).
 Until 2026-11 this repository had a vendored copy of an older version in
 `ShorelineS_functions/`.
 
@@ -172,7 +175,7 @@ latest upstream ShorelineS (`danoroelvink/shorelines` commit `f3ec863`, which
 contains the changes of September 2025). Both the MATLAB scripts (through the
 `ShorelineS/` submodule) and the Python port use it. The Python port follows
 the new code statement by statement and is checked against it in GNU Octave
-(24 model runs; see [python/README.md](python/README.md#verification-against-gnu-octave)).
+(25 model runs; see [python/README.md](python/README.md#verification-against-gnu-octave)).
 
 Changes that matter for this project:
 
@@ -221,11 +224,25 @@ Changes that matter for this project:
 - **`preserveorientation = 1`** now runs for coasts of several sections (it
   stopped with an index error before).
 
-Known issues in ShorelineS (reproduced by the port):
+Fixed in the fork (branch `fix-final-output`, offered upstream separately
+from the speed optimisations; the submodule uses `sediment-beach`, which
+combines both):
 
-- When sub-steps overshoot the end time, the run has no output at the end.
-  `save_shorelines` compares `tnow + dt` with the end time, with `dt` in years
-  and `tnow` in days.
+- **The end of a run is always stored.** Upstream `save_shorelines` detected
+  the end of the run with `tnow + dt >= tend`, with `dt` in years and `tnow`
+  in days. A run whose last time step did not land exactly on the end time
+  (a time step that does not fit the period, or sub-steps that overshoot it
+  by round-off) had no output at the end. Also, when the last step did land
+  on the end time, its record held the coastline one time step later. Now:
+  - when the last step is at the end time, it is stored like any other
+    output time;
+  - otherwise the coastline after the last update is stored, at the time it
+    belongs to (up to one time step after `S.endofsimulation`).
+
+  The Python port does the same.
+
+Known issue in ShorelineS (reproduced by the port):
+
 - `get_coastline_orientation` interpolates the previous orientations onto a
   changed grid inside a `try` block. It only works when the previous grid has
   as many points as orientations, which holds for this configuration.
@@ -410,7 +427,7 @@ runs.
 ## How much of ShorelineS the Python port covers
 
 **50 of the 135 ShorelineS files (37 %) are ported**, which is 46 % of the
-10,122 code lines (comments and blank lines excluded):
+10,133 code lines (comments and blank lines excluded):
 
 - 24 files fully;
 - 23 in part (the code paths of the supported options);

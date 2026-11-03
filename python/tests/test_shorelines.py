@@ -228,7 +228,8 @@ _WAVE_FIELDS = ("QS", "HSo", "PHIo", "TP", "HStdp", "PHItdp", "HSbr", "PHIbr", "
 # clipping of the wave angles to it (suppresshighangle) amplify them, to ~1e-6 m after
 # 2 days (with SHORELINES_EXACT_LIBM=1, which uses the system LAPACK like Octave, F10
 # is bit-identical too).
-_COAST_TOL = {"F06": 1e-5, "F10": 1e-8, "F11": 1e-7}
+# T01 (qscal = 2000, 363 sub-steps) accumulates them to ~1e-9 m by its last output.
+_COAST_TOL = {"F06": 1e-5, "F10": 1e-8, "F11": 1e-7, "T01": 1e-6}
 
 
 @pytest.mark.skipif(not _lfs_available(os.path.join(REPO, "input_25_contour.nc")),
@@ -262,11 +263,17 @@ def test_model_matches_octave(tmp_path, case):
             np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
     if case == "cyclic_island_6day":
         assert np.nansum(model.COAST["cyclic_mc"]) == 1                 # one closed section
+    t_end = model.TIME["tend"]
     if case == "T01":
         # sub-steps: the first output follows the 40 sub-steps of the first time step;
-        # the run ends a few 1e-8 h after S.endofsimulation, so (as in ShorelineS) there
-        # is no output at the end
-        assert O["it"].ravel().tolist() == [40] and model.TIME["it"] == 363
+        # the sub-steps overshoot the end by ~1e-8 h, and the end of the run is stored
+        assert O["it"].ravel().tolist() == [40, 363] and model.TIME["it"] == 363
+        assert abs(O["timenum"].ravel()[-1] - t_end) < 1e-8
+    elif case == "T03":
+        # the 4.4-hour time step does not fit the day: the last step ends at 26.2 h
+        assert O["timenum"].ravel()[-1] == pytest.approx(t_end + 24 / 5.5 * 6 / 24 - 1)
+    else:
+        assert O["timenum"].ravel()[-1] == t_end                        # output at the end
     if case == "T02":
         assert O["timenum"].size == 4                                   # 3 dates + the last step
 

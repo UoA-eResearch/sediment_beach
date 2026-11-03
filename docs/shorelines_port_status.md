@@ -6,13 +6,13 @@ MATLAB file (no comments or blank lines). See the [Python README](../python/READ
 | Status | Files | Code lines |
 |---|---:|---:|
 | ported | 24 | 1573 |
-| ported in part | 23 | 2661 |
+| ported in part | 23 | 2670 |
 | folded into other Python code | 3 | 373 |
 | not needed (plotting, I/O, utilities) | 19 | 1182 |
-| not ported | 66 | 4333 |
-| **all** | **135** | **10122** |
+| not ported | 66 | 4335 |
+| **all** | **135** | **10133** |
 
-Ported (fully, in part or folded in): **50 of 135 files (37 %)**, 4607 of 10122 code lines (46 %). Without plotting, I/O and utilities: 50 of 116 files (43 %), 4607 of 8940 code lines (52 %).
+Ported (fully, in part or folded in): **50 of 135 files (37 %)**, 4616 of 10133 code lines (46 %). Without plotting, I/O and utilities: 50 of 116 files (43 %), 4616 of 8951 code lines (52 %).
 
 ## Ported (24)
 
@@ -64,7 +64,7 @@ Ported (fully, in part or folded in): **50 of 135 files (37 %)**, 4607 of 10122 
 | `prepare_coastline` | 90 | `model.ShorelineS.__init__` | coastline from S.xmc/S.ymc |
 | `prepare_transport` | 102 | `model.ShorelineS.__init__` | no sediment limitation |
 | `prepare_waveconditions` | 47 | `model.ShorelineS.__init__` | wave time series at stations |
-| `save_shorelines` | 272 | `model.ShorelineS._store`, `model.ShorelineS.save` | no output grids or profiles |
+| `save_shorelines` | 281 | `model.ShorelineS._store`, `model.ShorelineS.save` | no output grids or profiles |
 | `transport` | 120 | `transport.transport` | CERC, CERC2, CERC3, KAMP, MILH, VR14; not RAY or TIDEPROF |
 | `transport_boundary_condition` | 49 | `transport.transport_boundary_condition` | no groyne boundaries |
 | `transport_shadow_treat` | 111 | `transport.transport_shadow_treat` | no shadow of structures |
@@ -158,7 +158,7 @@ Ported (fully, in part or folded in): **50 of 135 files (37 %)**, 4607 of 10122 
 | `prepare_structures` | 232 |  | hard structures |
 | `prepare_tide` | 27 |  | tides |
 | `prepare_windconditions` | 28 |  | wind (dunes) |
-| `save_shorelines_netcdf` | 243 |  | NetCDF output (S.netcdf = 1) |
+| `save_shorelines_netcdf` | 245 |  | NetCDF output (S.netcdf = 1) |
 | `tide_1d_ana_anycomp` | 37 |  | tides |
 | `transport_bypass` | 98 |  | groyne bypassing |
 | `transport_groynesubmerged` | 27 |  | submerged groynes |

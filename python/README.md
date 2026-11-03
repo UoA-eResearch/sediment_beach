@@ -149,7 +149,7 @@ run_ensemble(params, S0, 'ensemble');
 
 ## Scope of the ShorelineS port
 
-ShorelineS is ~20,000 lines of MATLAB (10,122 lines of code without comments,
+ShorelineS is ~20,000 lines of MATLAB (10,133 lines of code without comments,
 in 135 files) with many optional processes. The port follows the version in
 the `ShorelineS/` submodule (upstream commit `f3ec863`, with the changes of
 September 2025; see the [main README](../README.md#update-to-the-latest-shorelines-september-2025)).
@@ -279,7 +279,8 @@ are reproduced in `shorelines/mfuncs.py`.
 ## Verification against GNU Octave
 
 The reference is ShorelineS from the `ShorelineS/` submodule run in GNU
-Octave 8.4. `tests/reference_cases.py` defines 24 model runs; for each,
+Octave 8.4 (upstream `f3ec863` with the speed optimisations and the fix that
+stores the end of every run; see the [main README](../README.md#shorelines-git-submodule)). `tests/reference_cases.py` defines 25 model runs; for each,
 `tests/test_shorelines.py::test_model_matches_octave` compares the stored
 output with Octave's. The coastline coordinates and the time stepping are
 **bit-identical** to Octave's at every stored time, except in three cases:
@@ -300,6 +301,7 @@ magnifies rounding differences to ~1e-10 relative.
 | `F01` … `F13` | the options for sensitivity analyses: `trform` `CERC`, `CERC2`, `CERC3`, `MILH`, `VR14`; `suppresshighangle`; `relaxationlength`; `phif`; `tanbetasetup`; `sphimax = 'estimate'`; a combination; `d` as `[x y d]`; `preserveorientation` |
 | `T01` | sub-steps: `qscal = 2000` makes the stable time step 4 minutes, so each 3-hour step is split (363 steps in 1 day) |
 | `T02` | output at given dates (`storagedate`) |
+| `T03` | a time step (4.4 h) that does not fit the simulation period: the end of the run is stored |
 
 Single functions, against Octave:
 

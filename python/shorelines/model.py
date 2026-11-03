@@ -275,21 +275,36 @@ class ShorelineS:
         return np.unique([datenum(v) if isinstance(v, str) else float(v) for v in sd])
 
     def _store(self):
-        """save_shorelines.m (upstream 2025-09; without output grids / profiles)."""
-        TIME, C, W, T, O = self.TIME, self.COAST, self.WAVE, self.TRANSP, self.O
+        """save_shorelines.m (without output grids / profiles), with the end of the
+        run always stored (fixed in the ShorelineS submodule: upstream compared
+        tnow + dt with tend, dt in years and tnow in days, so a run whose last step
+        did not land exactly on tend had no output at the end)."""
+        TIME, C = self.TIME, self.COAST
         dates = self._storage_dates()
         storedata = False
         if TIME["dtsteps"] == 0 and self.itout <= dates.size:
             storedata = TIME["tnow"] >= dates[self.itout - 1]
-        final = (TIME["tnow"] + TIME["dt"]) >= TIME["tend"]
-        if final:
-            storedata = True
-        if not storedata:
-            return
-        if final:
-            x_mc, y_mc, PHIc_mc, PHIcxy_mc = C["x_mc"], C["y_mc"], C["PHIc_mc"], C["PHIcxy_mc"]
-        else:
-            x_mc, y_mc, PHIc_mc, PHIcxy_mc = C["x1_mc"], C["y1_mc"], C["PHIc1_mc"], C["PHIcxy1_mc"]
+        # last time step: the next time ends the time loop (tnow < tend, or tnow == tend for tc == 0)
+        tnext = TIME["tnow"] + TIME["dt"] * 365
+        laststep = tnext > TIME["tend"] or (tnext == TIME["tend"] and TIME["tc"] != 0)
+        storefinal = False
+        if laststep:
+            if TIME["tnow"] >= TIME["tend"]:
+                storedata = True                      # this step is at the end time
+            else:
+                storefinal = True                     # the run ends after this step
+        if storedata:
+            self._record(TIME["tnow"], C["x1_mc"], C["y1_mc"], C["PHIc1_mc"], C["PHIcxy1_mc"])
+        if storefinal:
+            # coastline after the last update, at the end of the run (waves, transport
+            # and orientations are those of the last time step)
+            self._record(tnext, C["x_mc"], C["y_mc"], C["PHIc_mc"], C["PHIcxy_mc"])
+        if (storedata or storefinal) and self.save_output:
+            self.save()
+
+    def _record(self, tstore, x_mc, y_mc, PHIc_mc, PHIcxy_mc):
+        """Append one output time to O (save_shorelines.m)."""
+        TIME, C, W, T, O = self.TIME, self.COAST, self.WAVE, self.TRANSP, self.O
         dx = x_mc[1:] - x_mc[:-1]
         dy = y_mc[1:] - y_mc[:-1]
         dx[np.isnan(dx)] = 0
@@ -300,8 +315,8 @@ class ShorelineS:
         O["dt"] = _add_vector(O["dt"], TIME["dt"])
         O["tc"] = _add_vector(O["dt"], TIME["tc"])        # (as in ShorelineS)
         O["nt"] = _add_vector(O["nt"], TIME["nt"])
-        O["time"] = _add_vector(O["time"], TIME["tnow"] - TIME["timenum0"])
-        O["timenum"] = _add_vector(O["timenum"], TIME["tnow"])
+        O["time"] = _add_vector(O["time"], tstore - TIME["timenum0"])
+        O["timenum"] = _add_vector(O["timenum"], tstore)
         O["x"] = _add_vector(O["x"], x_mc)
         O["y"] = _add_vector(O["y"], y_mc)
         O["distx"] = _add_vector(O["distx"], distx)
@@ -323,8 +338,6 @@ class ShorelineS:
         O["nhard"] = _add_vector(O["nhard"], 0)
         O["nnour"] = _add_vector(O["nnour"], 0)
         self.itout += 1
-        if self.save_output:
-            self.save()
 
     def save(self, fname=None):
         """Write O and S to S.outputdir/S.outputfile (.mat), as save_shorelines.m."""

@@ -79,6 +79,8 @@ MODEL_CASES = {
     # time steps: sub-steps when the stable time step is smaller than S.dt (large
     # transport), and output at given dates (S.storagedate)
     "T01": lambda: _synthetic_closed(qscal=2000, endofsimulation="1999-08-02"),
+    # a time step that does not fit the simulation period: the end of the run must be stored
+    "T03": lambda: _synthetic_closed(dt=1 / (365 * 5.5), endofsimulation="1999-08-02"),
     "T02": lambda: _synthetic_closed(storagedate=["1999-08-01 06:00:00", "1999-08-02 00:00:00", "1999-08-02 12:00:00"]),
 }
 
