@@ -4,7 +4,7 @@ function t = bench_run(codedir, ndays, doplot, outdir)
 %   t = bench_run(codedir, ndays, doplot, outdir)
 %
 %   codedir : folder with the ShorelineS functions to time
-%             (e.g. '../ShorelineS_functions', or a copy of an older version)
+%             (e.g. '../ShorelineS/functions', or a copy of another version)
 %   ndays   : number of simulated days, starting 2000-01-01 (dt = 3 h)
 %   doplot  : 1 = plot every time step (ShorelineS default plotinterval=1),
 %             0 = plot only the first time step

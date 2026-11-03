@@ -2,9 +2,9 @@ function test_get_polydistance(origdir)
 % TEST_GET_POLYDISTANCE  Compare vectorised get_polydistance with the original loop (real + random data)
 %   origdir : folder with the original (unoptimised) ShorelineS functions, e.g. a
 %             checkout of the commit before the optimisation:
-%             git worktree add ../baseline aa45896  ->  origdir = '../baseline/ShorelineS_functions'
+%             git -C ShorelineS worktree add ../upstream f3ec863  ->  origdir = 'upstream/functions'
 repo = fileparts(fileparts(mfilename('fullpath')));
-O = origdir; N = fullfile(repo,'ShorelineS_functions');
+O = origdir; N = fullfile(repo,'ShorelineS','functions');
 try, rng(3); catch, rand('seed',3); randn('seed',3); end
 r=load(fullfile(repo,'30_sept_int_w','output.mat'));
 Xr=r.S.xmc; Yr=r.S.ymc; worst=0; nm=0; tO=0; tN=0;

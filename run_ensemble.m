@@ -21,7 +21,7 @@ end
 if ~exist(out_root, 'dir')
     mkdir(out_root);
 end
-addpath(fullfile(fileparts(mfilename('fullpath')), 'ShorelineS_functions'));
+addpath(fullfile(fileparts(mfilename('fullpath')), 'ShorelineS', 'functions'));
 
 % hidden figures (Octave's fltk toolkit cannot print a hidden figure, so it keeps them visible)
 S0.plotvisible = double(exist('OCTAVE_VERSION','builtin') > 0);

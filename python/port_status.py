@@ -1,4 +1,4 @@
-"""Which ShorelineS functions (ShorelineS_functions/*.m) the Python port covers.
+"""Which ShorelineS functions (ShorelineS/functions/*.m, the git submodule) the Python port covers.
 
     python port_status.py          # rewrites ../docs/shorelines_port_status.md
 
@@ -19,7 +19,7 @@ import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-MATLAB_DIR = os.path.join(REPO, "ShorelineS_functions")
+MATLAB_DIR = os.path.join(REPO, "ShorelineS", "functions")
 
 STATUS = {
     # --- main program and set-up
@@ -173,7 +173,7 @@ LABELS = {"full": "ported", "partial": "ported in part", "folded": "folded into 
 
 
 def matlab_functions():
-    """{name: number of code lines (no comments or blank lines)} of ShorelineS_functions/*.m."""
+    """{name: number of code lines (no comments or blank lines)} of ShorelineS/functions/*.m."""
     out = {}
     for f in sorted(os.listdir(MATLAB_DIR)):
         if f.endswith(".m"):

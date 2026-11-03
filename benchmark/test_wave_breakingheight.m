@@ -2,9 +2,9 @@ function test_wave_breakingheight(origdir)
 % TEST_WAVE_BREAKINGHEIGHT  Compare vectorised wave_breakingheight with the original per-point loop
 %   origdir : folder with the original (unoptimised) ShorelineS functions, e.g. a
 %             checkout of the commit before the optimisation:
-%             git worktree add ../baseline aa45896  ->  origdir = '../baseline/ShorelineS_functions'
+%             git -C ShorelineS worktree add ../upstream f3ec863  ->  origdir = 'upstream/functions'
 repo = fileparts(fileparts(mfilename('fullpath')));
-O = origdir; N = fullfile(repo,'ShorelineS_functions');
+O = origdir; N = fullfile(repo,'ShorelineS','functions');
 try, rng(1); catch, rand('seed',1); randn('seed',1); end
 n=5000;
 W.dPHItdp=[ (rand(1,n)-.5)*200, 89.9, -89.9, 0, 45, 90 ];

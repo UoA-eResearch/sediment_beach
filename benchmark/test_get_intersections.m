@@ -2,9 +2,9 @@ function test_get_intersections(origdir)
 % TEST_GET_INTERSECTIONS  Check that get_intersections gives bit-identical results to the original
 %   origdir : folder with the original (unoptimised) ShorelineS functions, e.g. a
 %             checkout of the commit before the optimisation:
-%             git worktree add ../baseline aa45896  ->  origdir = '../baseline/ShorelineS_functions'
+%             git -C ShorelineS worktree add ../upstream f3ec863  ->  origdir = 'upstream/functions'
 repo = fileparts(fileparts(mfilename('fullpath')));
-O = origdir; N = fullfile(repo,'ShorelineS_functions');
+O = origdir; N = fullfile(repo,'ShorelineS','functions');
 try, rng(2); catch, rand('seed',2); randn('seed',2); end
 nbad=0; tO=0; tN=0; ncr=0; worst=0;
 for trial=1:3000

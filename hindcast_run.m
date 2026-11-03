@@ -1,7 +1,7 @@
 
 clear all
 
-addpath('C:\Users\mpul348\Documents\code_paper2_optimized\ShorelineS_functions'); %Add shorelineS model functions (folder next to this script)
+addpath(fullfile(fileparts(mfilename('fullpath')),'ShorelineS','functions')); %Add ShorelineS model functions (git submodule ShorelineS, next to this script)
 S=struct;
 start = '1999-08-01'; S.reftime = start ;
 end_simul = '2024-12-30'; S.endofsimulation = end_simul;

@@ -1,0 +1,4 @@
+[submodule "ShorelineS"]
+	path = ShorelineS
+	url = https://github.com/UoA-eResearch/shorelines
+	branch = speed-optimisations
