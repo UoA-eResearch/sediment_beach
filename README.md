@@ -230,7 +230,21 @@ Known issues in ShorelineS (reproduced by the port):
   changed grid inside a `try` block. It only works when the previous grid has
   as many points as orientations, which holds for this configuration.
 
-IMPACT_PLACEHOLDER
+**Effect on the hindcast.** With the current `python/hindcast_run.py`
+settings (closed boundaries, `d50 = 10⁻⁴` m, `qscal = 1`), the wave stations
+`input_25_contour.nc` and 2000-01-01 to 2004-12-31, the old and the new
+version give nearly the same cross-shore change:
+
+| | old ShorelineS | ShorelineS f3ec863 |
+|---|---:|---:|
+| RMSE vs. CoastSat (30-day values) | 34.7 m | 34.7 m |
+| correlation with CoastSat | 0.041 | 0.048 |
+| mean \|change\| at the end | 35.9 m | 35.8 m |
+
+92 % of the transect-times differ by less than 1 m (RMS 1.5 m). The largest
+differences (up to 72 m) are at the last two transects, at the end of the
+coastline, where the treatment of the end points changed. Runs with
+`qscal ≠ 1` change much more, because of the `qscal` fix above.
 
 The [Findings](#findings) below were made with the old version.
 
