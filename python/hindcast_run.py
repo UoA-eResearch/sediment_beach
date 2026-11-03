@@ -44,6 +44,8 @@ PARAMETERS = [
     ("gamma", "-", "breaking coefficient Hs/h"),
     ("porosity", "-", "porosity of the sediment"),
     ("tanbeta", "-", "mean bed slope"),
+    ("tanbetasetup", "-", "factor of the wave set-up (alongshore wave-height gradient) term; only "
+     "active with diffraction, which this configuration does not use"),
     ("rhos", "kg/m3", "density of sand"),
     ("rhow", "kg/m3", "density of water"),
     ("g", "m/s2", "gravitational acceleration"),
@@ -60,8 +62,8 @@ PARAMETERS = [
      "(give that in a --runs JSON file)"),
     ("phif", "deg", "foreshore orientation: none = smoothed initial coastline, or one angle, or "
      "[[x, y, angle], ...]"),
-    ("preserveorientation", "0/1", "move the coastline normal to the initial grid (fails in ShorelineS "
-     "for coasts of several sections)"),
+    ("preserveorientation", "0/1", "move every coastline point normal to the transport grid of the "
+     "previous time step"),
     ("boundaryconditionstart", "", "start of open sections: closed, periodic, neumann, fixed (= neumann), "
      "angleconstant or gradient (= angleconstant); closed:Q fixes the transport at Q m3/yr, "
      "angleconstant:A the coastline angle at A degrees"),
@@ -100,6 +102,7 @@ def hindcast_settings(x_initial, y_initial, start=RUN_DEFAULTS["start"], end=RUN
         d50=1.0e-4,                                   # median grain size [m]
         dt=1 / (365 * 8), tc=0,                       # fixed 3-hourly time step [yr]
         storageinterval=interval, outputdir=out_dir,
+        outputfile="output",                          # <out_dir>/output.mat (default: shorelines_output)
         suppresshighangle=0,
     )
 

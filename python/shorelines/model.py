@@ -5,6 +5,7 @@ structures, dunes, mud, nourishments or diffraction.
 
 Options outside that scope raise ``NotImplementedError`` instead of being
 silently ignored."""
+import math
 import os
 import time
 
@@ -32,7 +33,8 @@ DEFAULTS = dict(
     smoothfac=0.0, smoothrefrac=0.0, boundaryconditionstart="Fixed",
     boundaryconditionend="Fixed", wvcfile="", sphimax=None,
     spitmethod="default", spitwidth=50.0, spitheadwidth=200.0, owscale=0.1,
-    owtimescale=0.0, bheight=2.0, storageinterval=50.0, outputdir="Output",
+    owtimescale=0.0, bheight=2.0, storageinterval=50.0, storagedate=None, outputdir="Output",
+    outputfile="shorelines_output", tanbetasetup=1.0, netcdf=0,
     # features that are not ported (must stay off)
     xhard=None, ldbstructures="", xrevet=None, ldbrevetments="", xperm=None,
     perm=0, dune=0, mud=0, nourish=0, fnourish=0, diffraction=0, channel=0,
@@ -40,6 +42,8 @@ DEFAULTS = dict(
     ccslr=None, cchs=None, ccdir=None, ldbcoastline="", transmission=0,
     xyout=None, xyprofiles=None,
 )
+# (upstream ShorelineS, 2025-09: S.tanbetasetup replaces the fixed 2/tanbeta of the
+# wave set-up term in the transport formulas; output goes to S.outputfile)
 # spitdsf/spitdbb are computed from the *default* S.d in ShorelineS
 DEFAULTS["spitdsf"] = DEFAULTS["d"] * 0.8
 DEFAULTS["spitdbb"] = 0.5 * DEFAULTS["spitdsf"]
@@ -55,7 +59,7 @@ def _check_supported(S):
     for key in ("xhard", "ldbstructures", "xrevet", "ldbrevetments", "xperm", "perm", "dune", "mud",
                 "nourish", "fnourish", "diffraction", "channel", "tideinteraction", "waveinteraction",
                 "xsedlim", "ldbsedlim", "ccslr", "cchs", "ccdir", "ldbcoastline", "transmission",
-                "xyout", "xyprofiles"):
+                "xyout", "xyprofiles", "netcdf"):
         if on(S.get(key)):
             raise NotImplementedError(f"S.{key} is not supported by the Python port")
     if S["tc"] != 0 or S["dt"] <= 0:
@@ -130,7 +134,7 @@ def settings_for_mat(S):
 def _add_vector(a, b):
     """addVECTOR of save_shorelines.m: append column b, padding with NaN."""
     b = np.asarray(b, dtype=float).ravel()[:, None]
-    if a is None or a.size == 0:
+    if a is None:
         return b.copy()
     if b.shape[0] > a.shape[0]:
         a = np.vstack([a, np.full((b.shape[0] - a.shape[0], a.shape[1]), np.nan)])
@@ -139,18 +143,18 @@ def _add_vector(a, b):
     return np.hstack([a, b])
 
 
-_COAST_COLLECT = ["s", "ds", "x1", "y1", "xq", "yq", "xq1", "yq1", "PHIc", "dPHIc", "PHIcxy",
-                  "PHIcxy0", "PHIf", "h0", "cyclic", "clockwise"]
+_COAST_COLLECT = ["s", "ds", "xq", "yq", "PHIc", "dPHIc", "PHIcxy", "PHIcxy0", "PHIf", "h0", "cyclic",
+                  "clockwise"]
 _WAVE_COLLECT = ["PHIo", "PHItdp", "PHIbr", "HSo", "HStdp", "HSbr", "dPHIo", "dPHItdp", "dPHIbr",
                  "TP", "hbr", "dPHIcrit", "diff"]
 _TRANSP_COLLECT = ["QS", "QSmax", "shadowS", "shadowS_h", "shadowS_hD", "shadow", "shadow_h",
                    "ivals", "idrev"]
-_O_FIELDS = ["it", "dt", "tc", "nt", "timenum", "n", "x", "y", "distx", "distQS", "dSds",
-             "wberm", "xdune", "ydune", "qs", "ql", "qw", "R", "SWL", "PHIcxy", "Bf", "Bm", "Bfm",
-             "n1", "x1", "y1", "distx1", "distQS1", "PHIc", "QS", "HSo", "PHIo", "TP", "PHIf",
-             "HS", "PHI", "dPHI", "HSbr", "PHIbr", "dPHIbr", "hbr", "xhard", "yhard", "nhard",
-             "xnour", "ynour", "nnour", "x_fnour", "y_fnour", "n_fnour", "V_fnour_t", "q_fnour_t",
-             "x_groyne", "y_groyne"]
+# output fields of initialize_output.m (upstream 2025-09)
+_O_FIELDS = ["it", "dt", "tc", "nt", "time", "timenum", "x", "y", "distx", "h0", "PHIc", "PHIcxy", "PHIf",
+             "distQS", "QS", "TP", "HSo", "HStdp", "HSbr", "PHIo", "PHItdp", "PHIbr",
+             "wberm", "dfelev", "dcelev", "xdune", "ydune", "qs", "ql", "qw", "R", "SWL", "Bf", "Bm", "Bfm", "hd0",
+             "xhard", "yhard", "nhard", "xnour", "ynour", "nnour",
+             "x_fnour", "y_fnour", "n_fnour", "V_fnour_t", "q_fnour_t", "x_groyne", "y_groyne"]
 
 
 def _collect(store, src, fields, i_mc):
@@ -179,8 +183,8 @@ class ShorelineS:
 
         # ---- time
         t0 = datenum(S["reftime"])
-        self.TIME = dict(dt=S["dt"], tc=S["tc"], timenum0=t0, tnow=t0, tend=datenum(S["endofsimulation"]),
-                         it=-1, itout=0, tprev=t0, nt=0)
+        self.TIME = dict(dt=S["dt"], dt0=S["dt"], adt=1 / 365 / 24, dtsteps=0, tc=S["tc"], timenum0=t0,
+                         tnow=t0, tend=datenum(S["endofsimulation"]), it=-1, tprev=t0, nt=0)
 
         # ---- coastline (prepare_coastline.m)
         x_mc = np.asarray(S["xmc"], dtype=float).ravel()
@@ -200,9 +204,10 @@ class ShorelineS:
             PHIf0=(None if S["phif"] is None or np.size(S["phif"]) == 0 else
                    (float(S["phif"]) if np.ndim(S["phif"]) == 0 else np.asarray(S["phif"], dtype=float))),
             griddingmethod=S["griddingmethod"], maxangle=S["maxangle"],
-            preserveorientation=S["preserveorientation"], PHIc0bnd=np.array([np.nan, np.nan]),
+            preserveorientation=S["preserveorientation"],
             boundaryconditionstart=boundary_condition(S["boundaryconditionstart"]),
             boundaryconditionend=boundary_condition(S["boundaryconditionend"]), xq_mc=np.zeros(0), yq_mc=np.zeros(0),
+            mergegrid=0,
         )
 
         # ---- waves (prepare_waveconditions.m)
@@ -219,7 +224,8 @@ class ShorelineS:
         # ---- transport (prepare_transport.m)
         self.TRANSP = dict(trform=S["trform"], qscal=S["qscal"], b=S["b"], pswell=S["pswell"],
                            d50=S["d50"], porosity=S["porosity"],
-                           tanbeta=S["tanbeta"], rhos=S["rhos"], rhow=S["rhow"], g=S["g"],
+                           tanbeta=S["tanbeta"], tanbetasetup=S["tanbetasetup"],
+                           rhos=S["rhos"], rhow=S["rhow"], g=S["g"],
                            gamma=S["gamma"], twopoints=S["twopoints"],
                            suppresshighangle=S["suppresshighangle"],
                            relaxationlength=S["relaxationlength"],
@@ -233,6 +239,8 @@ class ShorelineS:
                          bheight=S["bheight"])
 
         self.O = {f: np.zeros((0, 0)) for f in _O_FIELDS}
+        self.itout = 1                                # O.itout (counter of output time steps)
+        self.outputfile = os.path.splitext(os.path.basename(str(S["outputfile"])))[0] + ".mat"
 
     # ------------------------------------------------------------------
     def _segment(self, i_mc):
@@ -243,6 +251,7 @@ class ShorelineS:
         seg["s"] = get_one_section(C["s_mc"], i_mc)
         seg["ds"] = get_one_section(C["ds_mc"], i_mc)
         seg["h0"] = get_one_section(C["h0_mc"], i_mc)
+        seg["PHIcxy"] = get_one_section(C["PHIcxy_mc"], i_mc)
         seg["PHIcxy0"] = get_one_section(C["PHIcxy0_mc"], i_mc)
         # get_segmentdata.m: CERC/CERC2 use the nearshore wave angle, the others the breaking angle
         PHI_mc = W["PHItdp_mc"] if T["trform"].upper() in ("CERC", "CERC2") else W["PHIbr_mc"]
@@ -255,76 +264,138 @@ class ShorelineS:
         seg["nq"] = QS.size
         return seg
 
+    def _storage_dates(self):
+        S, TIME = self.S, self.TIME
+        sd = S.get("storagedate")
+        if sd is None or (not isinstance(sd, str) and len(sd) == 0) or (isinstance(sd, str) and not sd):
+            d = cl.colon(TIME["timenum0"], S["storageinterval"], TIME["tend"])
+            return np.unique(np.append(d, TIME["tend"]))
+        if isinstance(sd, str):
+            sd = [sd]
+        return np.unique([datenum(v) if isinstance(v, str) else float(v) for v in sd])
+
     def _store(self):
-        """save_shorelines.m (without output grids / profiles)."""
-        S, TIME, C, W, T, O = self.S, self.TIME, self.COAST, self.WAVE, self.TRANSP, self.O
-        storedata = ((TIME["tnow"] - TIME["timenum0"]) >= TIME["itout"] * S["storageinterval"]
-                     or (TIME["tnow"] + TIME["dt"]) >= TIME["tend"])
+        """save_shorelines.m (upstream 2025-09; without output grids / profiles)."""
+        TIME, C, W, T, O = self.TIME, self.COAST, self.WAVE, self.TRANSP, self.O
+        dates = self._storage_dates()
+        storedata = False
+        if TIME["dtsteps"] == 0 and self.itout <= dates.size:
+            storedata = TIME["tnow"] >= dates[self.itout - 1]
+        final = (TIME["tnow"] + TIME["dt"]) >= TIME["tend"]
+        if final:
+            storedata = True
         if not storedata:
             return
-        x_mc, y_mc = C["x_mc"], C["y_mc"]
-        x_mc1, y_mc1 = C["x1_mc"], C["y1_mc"]
-
-        def dist(x, y):
-            dx = x[1:] - x[:-1]
-            dy = y[1:] - y[:-1]
-            dx[np.isnan(dx)] = 0
-            dy[np.isnan(dy)] = 0
-            d = np.concatenate([[0.0], np.cumsum(m_pow(dx * dx + dy * dy, 0.5))])
-            return d, (d[:-1] + d[1:]) / 2
-
-        distx, distQS = dist(x_mc, y_mc)
-        distx1, distQS1 = dist(x_mc1, y_mc1)
+        if final:
+            x_mc, y_mc, PHIc_mc, PHIcxy_mc = C["x_mc"], C["y_mc"], C["PHIc_mc"], C["PHIcxy_mc"]
+        else:
+            x_mc, y_mc, PHIc_mc, PHIcxy_mc = C["x1_mc"], C["y1_mc"], C["PHIc1_mc"], C["PHIcxy1_mc"]
+        dx = x_mc[1:] - x_mc[:-1]
+        dy = y_mc[1:] - y_mc[:-1]
+        dx[np.isnan(dx)] = 0
+        dy[np.isnan(dy)] = 0
+        distx = np.concatenate([[0.0], np.cumsum(m_pow(dx * dx + dy * dy, 0.5))])
+        distQS = (distx[:-1] + distx[1:]) / 2
         O["it"] = _add_vector(O["it"], TIME["it"])
         O["dt"] = _add_vector(O["dt"], TIME["dt"])
         O["tc"] = _add_vector(O["dt"], TIME["tc"])        # (as in ShorelineS)
         O["nt"] = _add_vector(O["nt"], TIME["nt"])
+        O["time"] = _add_vector(O["time"], TIME["tnow"] - TIME["timenum0"])
         O["timenum"] = _add_vector(O["timenum"], TIME["tnow"])
-        O["n"] = _add_vector(O["n"], np.sum(np.isnan(x_mc)) + 1)
         O["x"] = _add_vector(O["x"], x_mc)
         O["y"] = _add_vector(O["y"], y_mc)
         O["distx"] = _add_vector(O["distx"], distx)
+        O["h0"] = _add_vector(O["h0"], C["h0_mc"])
+        O["PHIc"] = _add_vector(O["PHIc"], PHIc_mc)
+        O["PHIcxy"] = _add_vector(O["PHIcxy"], PHIcxy_mc)
+        O["PHIf"] = _add_vector(O["PHIf"], C["PHIf_mc"])
         O["distQS"] = _add_vector(O["distQS"], distQS)
-        O["dSds"] = _add_vector(O["dSds"], C["dSds_mc"])
-        O["n1"] = _add_vector(O["n1"], np.sum(np.isnan(x_mc1)) + 1)
-        O["x1"] = _add_vector(O["x1"], x_mc1)
-        O["y1"] = _add_vector(O["y1"], y_mc1)
-        O["distx1"] = _add_vector(O["distx1"], distx1)
-        O["distQS1"] = _add_vector(O["distQS1"], distQS1)
-        O["PHIc"] = _add_vector(O["PHIc"], C["PHIc_mc"])
         O["QS"] = _add_vector(O["QS"], T["QS_mc"])
+        O["TP"] = _add_vector(O["TP"], W["TP_mc"])
         O["HSo"] = _add_vector(O["HSo"], W["HSo_mc"])
         O["PHIo"] = _add_vector(O["PHIo"], W["PHIo_mc"])
-        O["TP"] = _add_vector(O["TP"], W["TP_mc"])
-        O["PHIf"] = _add_vector(O["PHIf"], C["PHIf_mc"])
-        O["HS"] = _add_vector(O["HS"], W["HStdp_mc"])
-        O["PHI"] = _add_vector(O["PHI"], W["PHItdp_mc"])
-        O["dPHI"] = _add_vector(O["dPHI"], W["dPHItdp_mc"])
+        O["HStdp"] = _add_vector(O["HStdp"], W["HStdp_mc"])
+        O["PHItdp"] = _add_vector(O["PHItdp"], W["PHItdp_mc"])
         O["HSbr"] = _add_vector(O["HSbr"], W["HSbr_mc"])
         O["PHIbr"] = _add_vector(O["PHIbr"], W["PHIbr_mc"])
-        O["dPHIbr"] = _add_vector(O["dPHIbr"], W["dPHIbr_mc"])
-        O["hbr"] = _add_vector(O["hbr"], W["hbr_mc"])
         for f in ("xhard", "yhard", "xnour", "ynour", "x_groyne", "y_groyne"):
             O[f] = _add_vector(O[f], np.zeros(0))
         O["nhard"] = _add_vector(O["nhard"], 0)
         O["nnour"] = _add_vector(O["nnour"], 0)
-        TIME["itout"] += 1
+        self.itout += 1
         if self.save_output:
             self.save()
 
-    def save(self, fname="output.mat"):
-        outdir = self.S["outputdir"]
+    def save(self, fname=None):
+        """Write O and S to S.outputdir/S.outputfile (.mat), as save_shorelines.m."""
+        S = self.S
+        outdir = S["outputdir"]
         os.makedirs(outdir, exist_ok=True)
         O = dict(self.O)
+        O["netcdf"] = 0
+        O["storageinterval"] = S["storageinterval"]
+        sd = S.get("storagedate")
+        O["storagedate"] = np.empty((0, 0), dtype=object) if not sd else np.array(
+            [sd] if isinstance(sd, str) else list(sd), dtype=object)
         O["outputdir"] = outdir
-        O["storageinterval"] = self.S["storageinterval"]
-        # S: every setting used (defaults filled in), as ShorelineS stores it in output.mat
-        scipy.io.savemat(os.path.join(outdir, fname), {"O": O, "S": settings_for_mat(self.S)},
-                         do_compression=False)
+        O["outputfile"] = self.outputfile
+        O["itout"] = self.itout
+        O["xyprofiles"] = np.zeros((0, 0))
+        # S: every setting used (defaults filled in), as ShorelineS stores it in the output file
+        scipy.io.savemat(os.path.join(outdir, fname or self.outputfile),
+                         {"O": O, "S": settings_for_mat(S)}, do_compression=False)
+
+    # ------------------------------------------------------------------
+    def _get_timestep(self):
+        """get_timestep.m: stable time step adt (minimum over the sections)."""
+        C, T, TIME = self.COAST, self.TRANSP, self.TIME
+        if TIME["tc"] < 0:
+            adt = TIME["dt"]
+        else:
+            dsmin = np.float64(np.nanmin(np.diff(C["s"])))
+            h0min = np.float64(np.nanmin(C["h0"]))
+            aq = np.abs(np.asarray(T["QSmax"], dtype=float))
+            if not np.all(np.isnan(aq)):
+                adt = dsmin * dsmin * h0min / (4 * np.float64(np.nanmax(aq)))
+            else:
+                raise RuntimeError("get_timestep: QSmax is NaN everywhere ('adt' undefined in ShorelineS)")
+            adt = max(adt, 1 / 365 / 24 / 60)        # at least a 1 minute time step
+            if C["i_mc"] > 1:
+                adt = min(adt, TIME["adt"])           # minimum over all sections
+            if TIME["it"] > 1:
+                adt0 = TIME["dt"]
+                adt = min(adt, 100 * adt0)
+                adt = max(adt, 0.001 * adt0)
+            else:
+                adt = min(adt, 1 / 365)               # at most 1 day initially
+        TIME["adt"] = adt
+
+    def _get_coastlineupdate_timestep(self):
+        """get_coastlineupdate_timestep.m for a fixed time step (S.tc = 0): sub-steps
+        when the stable time step adt is smaller than S.dt."""
+        TIME = self.TIME
+        adt = 1 * TIME["adt"]                         # tc*adt with tc = 1 for TIME.tc == 0
+        if TIME["dtsteps"] > 0 and TIME["tc"] == 0:
+            TIME["dtsteps"] = max(TIME["dtsteps"] - 1, 0)
+            if TIME["dt"] > adt:
+                fac = math.ceil(TIME["dt"] / adt)
+                TIME["dt"] = TIME["dt"] / fac
+                TIME["dtsteps"] = (TIME["dtsteps"] + 1) * fac - 1
+            elif 2 * TIME["dt"] < adt and TIME["dtsteps"] % 2 == 0:
+                dt2 = (TIME["dtsteps"] + 1) * TIME["dt"]     # remaining time
+                fac = math.ceil(dt2 / adt)
+                TIME["dt"] = dt2 / fac
+                TIME["dtsteps"] = fac - 1
+        elif TIME["dt0"] > adt and TIME["tc"] == 0:
+            fac = math.ceil(TIME["dt0"] / adt)
+            TIME["dtsteps"] = fac - 1
+            TIME["dt"] = TIME["dt0"] / fac
+        else:
+            TIME["dt"] = TIME["dt0"]
 
     # ------------------------------------------------------------------
     def step(self):
-        C, W, T, TIME, S = self.COAST, self.WAVE, self.TRANSP, self.TIME, self.S
+        C, W, T, TIME = self.COAST, self.WAVE, self.TRANSP, self.TIME
         TIME["it"] += 1
         TIME["nt"] = TIME["it"]
 
@@ -349,31 +420,41 @@ class ShorelineS:
             get_smoothangles(C, T)
             get_upwindcorrection(C, W, T)
             transport_boundary_condition(T, C)
+            self._get_timestep()
             # collect_variables
-            C["x1"], C["y1"] = C["x"], C["y"]
-            C["xq1"], C["yq1"] = C["xq"], C["yq"]
+            if i_mc == 1:
+                # wave directions: HS^2-weighted mean over the wave conditions (one condition here)
+                for f, fh in (("PHIo", "HSo"), ("PHItdp", "HStdp"), ("PHIbr", "HSbr")):
+                    w = np.fmax(W[fh], 1e-6)
+                    w = w * w
+                    W[f] = mmod(atan2d(sind(W[f]) * W["Prob"] * w, cosd(W[f]) * W["Prob"] * w), 360)
             _collect(C, C, _COAST_COLLECT, i_mc)
             _collect(W, W, _WAVE_COLLECT, i_mc)
             _collect(T, T, _TRANSP_COLLECT, i_mc)
             W["diff_mc"] = np.nan_to_num(W["diff_mc"], nan=0.0).astype(bool)
             if i_mc == C["n_mc"]:
-                C["x_mc"], C["y_mc"] = C["x1_mc"].copy(), C["y1_mc"].copy()
-                C["xq_mc"], C["yq_mc"] = C["xq1_mc"].copy(), C["yq1_mc"].copy()
+                C["x1_mc"], C["y1_mc"] = C["x_mc"].copy(), C["y_mc"].copy()
+                C["n1_mc"] = int(np.sum(np.isnan(C["x1_mc"]))) + 1
+                C["xq1_mc"], C["yq1_mc"] = C["xq_mc"].copy(), C["yq_mc"].copy()
+                C["PHIc1_mc"] = C["PHIc_mc"].copy()
+                C["PHIcxy1_mc"] = C["PHIcxy0_mc"].copy()
             if C["i_mc"] == C["n_mc"]:
                 W["dPHIcrit_mc0"] = W["dPHIcrit_mc"].copy()   # used by suppresshighangle next step
+        self._get_coastlineupdate_timestep()
 
         # PHASE 2: coastline change
         for i_mc in range(1, C["n_mc"] + 1):
             seg = self._segment(i_mc)
             C.update(i_mc=i_mc, x=seg["x"], y=seg["y"], n=seg["n"], nq=seg["nq"], h0=seg["h0"],
-                     cyclic=seg["cyclic"], s=seg["s"], ds=seg["ds"], PHIcxy0=seg["PHIcxy0"])
+                     cyclic=seg["cyclic"], s=seg["s"], ds=seg["ds"], PHIcxy=seg["PHIcxy"],
+                     PHIcxy0=seg["PHIcxy0"])
             T["QS"] = seg["QS"]
             cl.coastline_change(C, T, TIME)
 
         # PHASE 3: overwash, merging, cleanup
         def seg_overwash(ii, with_i2=False):
             s = self._segment(ii)
-            out = (s["x"], s["y"], s["shadow"], s["PHI"], s["i1"], s["cyclic"])
+            out = (s["x"], s["y"], s["shadow"], s["PHI"], s["PHIcxy"], s["i1"], s["cyclic"])
             return out + (s["i2"],) if with_i2 else out
 
         cl.find_overwash_mc(C, self.SPIT, TIME, seg_overwash)
@@ -387,7 +468,8 @@ class ShorelineS:
         self._store()
         if self.record_steps:
             self.steps.append(dict(x_mc=C["x_mc"].copy(), y_mc=C["y_mc"].copy(), QS=T["QS_mc"].copy(),
-                                   tnow=TIME["tnow"]))
+                                   tnow=TIME["tnow"], dt=TIME["dt"]))
+        # get_nexttimestep
         TIME["tprev"] = TIME["tnow"]
         TIME["tnow"] = TIME["tnow"] + TIME["dt"] * 365
 
@@ -405,9 +487,7 @@ class ShorelineS:
                 phiavg = mmod(atan2d(np.median(sind(p)), np.median(cosd(p))), 360)
                 print(f"   {datestr(TIME['tnow'])}  Hs_tdp={np.median(h):2.1f}, Dir_tdp={float(phiavg):1.0f}")
         self.timings["time_loop"] = time.perf_counter() - t0
-        if self.save_output:
-            self.save()
-        return self.O
+        return self.O                                 # (written at each storage time by _store)
 
 
 def run(S, **kwargs):

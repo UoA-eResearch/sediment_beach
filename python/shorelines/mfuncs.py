@@ -342,6 +342,10 @@ def get_clockpoly(x, y):
     xc = np.mean(x)
     xd = np.diff(np.concatenate([x, x[:1]]))
     yd = np.diff(np.concatenate([y, y[:1]]))
+    if abs(x[-1] - x[0]) < 1e-8 and abs(y[-1] - y[0]) < 1e-8:
+        # closed polygon: the closing segment repeats the first one (upstream 2025-09)
+        xd[-1] = xd[0]
+        yd[-1] = yd[0]
     mark = xd == 0
     xd = xd.copy()
     xd[mark] = np.nan
@@ -361,6 +365,57 @@ def get_clockpoly(x, y):
     if np.all(xdi <= 0) and np.any(xdi < 0):
         return -1
     return 0
+
+
+def uniquetol_ia(A, tol=1e-12):
+    """Index vector ``ia`` (0-based) of Octave's ``[~, ia] = uniquetol(A, tol)``
+    for a real vector: the first element (in stable sorted order) of each group
+    of values within tol*max(|A|), in ascending order of the values. Ports the
+    algorithm of Octave 8's uniquetol.m (cumulative-sum grouping + shifting)."""
+    A = np.asarray(A, dtype=float).ravel()
+    nr = A.size
+    if nr == 0:
+        return np.zeros(0, dtype=int)
+    fin = A[~np.isinf(A)]
+    with np.errstate(invalid="ignore"):
+        data_scale = np.max(np.abs(fin)) if fin.size else np.nan
+    tol = tol * data_scale
+    isnanA = np.isnan(A)
+    sAi = np.argsort(A, kind="stable")       # NaN last, as Octave's sort
+    sortA = A[sAi]
+    diffsortA = np.diff(sortA)
+    isinfsortA = np.isinf(sortA)
+    isnansortA = np.isnan(sortA)
+    numnan = int(np.sum(isnansortA))
+    if np.any(isinfsortA):
+        sAnin = sortA[~(isinfsortA | isnansortA)]
+        diffsortA[np.isinf(diffsortA)] = abs(sAnin[-1] - sAnin[0]) + 10
+    csdx = np.cumsum(diffsortA)
+    if csdx.size:
+        with np.errstate(invalid="ignore"):
+            d = np.diff(np.concatenate([[0.0], csdx - mmod(csdx, tol)]))
+            ue = np.concatenate([[True], d > np.spacing(np.max(csdx))])
+    else:
+        ue = np.array([True])
+    while True:
+        ueold = ue.copy()
+        with np.errstate(invalid="ignore"):
+            belowtol = np.concatenate([[False], np.diff(sortA[ue]) < tol])
+        if np.any(belowtol):
+            needstomove = np.flatnonzero(ue)[belowtol]
+            ue[needstomove] = False
+            needstomove = needstomove[needstomove + 1 < nr - numnan]   # 1-based: needstomove >= nr-numnan removed
+            ue[needstomove + 1] = True
+        if np.array_equal(ueold, ue):
+            break
+    ia = sAi[ue]
+    if np.any(isnanA):
+        findisnanA = np.flatnonzero(isnanA)
+        nc = int(np.sum(ue))
+        rowsc1 = np.arange(findisnanA.size) + (nc if not np.all(isnanA) else 0)
+        ia = np.concatenate([ia, np.zeros(max(rowsc1.max() + 1 - ia.size, 0), dtype=int)])
+        ia[rowsc1] = findisnanA
+    return ia
 
 
 def get_cyclic(x, y, ds0):

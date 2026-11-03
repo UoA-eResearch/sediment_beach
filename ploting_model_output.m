@@ -5,11 +5,18 @@ end
 raw_out = load(output_file);
 
 
-PHI = raw_out.O.PHI; %nearshore waves angle in relation to north, clockwise increasing
-dPHI = raw_out.O.dPHI;%nearshore waves angle in relation to the coastline
-QS = raw_out.O.QS; %transport
-dPHIbr = raw_out.O.dPHIbr;%wave angle at the point of breaking in relation to the coastline
 PHIc = raw_out.O.PHIc; %coastline orientation calculated from the coastline geometry.
+QS = raw_out.O.QS; %transport
+if isfield(raw_out.O, 'PHItdp')
+    % output of ShorelineS since 2025-09: O.PHItdp/O.PHIbr, no O.PHI/O.dPHI/O.dPHIbr
+    PHI = raw_out.O.PHItdp; %nearshore waves angle in relation to north, clockwise increasing
+    dPHI = mod(PHIc - PHI + 180, 360) - 180; %nearshore waves angle in relation to the coastline (without S.smoothrefrac)
+    dPHIbr = mod(PHIc - raw_out.O.PHIbr + 180, 360) - 180; %wave angle at the point of breaking in relation to the coastline
+else
+    PHI = raw_out.O.PHI; %nearshore waves angle in relation to north, clockwise increasing
+    dPHI = raw_out.O.dPHI;%nearshore waves angle in relation to the coastline
+    dPHIbr = raw_out.O.dPHIbr;%wave angle at the point of breaking in relation to the coastline
+end
 PHIf = raw_out.O.PHIf;%smoothed foreshore orientation used to calculate the wave angle relative to the coast.
 %PHIcs: coastline orientation used for the refraction calculation in the code you shared.
 

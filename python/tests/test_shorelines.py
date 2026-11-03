@@ -81,34 +81,6 @@ def test_get_polydistance_straight_line():
 
 
 # ---------------------------------------------------------------------------
-@pytest.mark.skipif(not _lfs_available(os.path.join(REPO, "input_25_contour.nc")),
-                    reason="Git LFS data not available")
-def test_model_2days_matches_octave(tmp_path):
-    """2 simulated days (17 time steps) of the hindcast configuration, compared
-    with the output of ShorelineS in GNU Octave 8.4."""
-    from shorelines import ShorelineS
-    r = scipy.io.loadmat(os.path.join(REPO, "30_sept_int_w", "output.mat"), squeeze_me=True,
-                         struct_as_record=False)["S"]
-    S = dict(reftime="2000-01-01", endofsimulation="2000-01-03", xmc=r.xmc, ymc=r.ymc,
-             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
-             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", boundaryconditionstart="periodic",
-             boundaryconditionend="periodic", d=10, dt=1 / (365 * 8), tc=0, storageinterval=30,
-             outputdir=str(tmp_path), suppresshighangle=0)
-    O = ShorelineS(S, verbose=False, save_output=False).run()
-    ref = scipy.io.loadmat(os.path.join(DATA, "octave_2day_output.mat"), squeeze_me=False,
-                           struct_as_record=False)["O"][0, 0]
-    # coastline geometry: bit-identical
-    for f in ("x", "y", "x1", "y1", "distx", "n"):
-        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
-    # waves and transport: equal to round-off
-    for f in ("QS", "dSds", "HSo", "PHIo", "TP", "HS", "PHI", "HSbr", "PHIbr", "dPHIbr", "hbr", "PHIc", "PHIf"):
-        a = getattr(ref, f)
-        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
-        scale = np.nanmax(np.abs(a))
-        np.testing.assert_allclose(O[f], a, rtol=0, atol=1e-13 * scale, err_msg=f)
-
-
-# ---------------------------------------------------------------------------
 # Cyclic (closed) coastline sections
 def test_get_clockpoly_matches_octave():
     """300 random polygons, both orientations, open and closed, computed with
@@ -127,12 +99,13 @@ def test_overwash_closed_section_matches_octave():
     from shorelines.mfuncs import get_cyclic, get_one_polygon, get_one_section
     d = {k: v.ravel() for k, v in scipy.io.loadmat(os.path.join(DATA, "overwash_cyclic_case.mat")).items()
          if not k.startswith("__")}
-    C = dict(x_mc=d["x_mc"].copy(), y_mc=d["y_mc"].copy(), n_mc=1, ds0=75.0)
+    C = dict(x_mc=d["x_mc"].copy(), y_mc=d["y_mc"].copy(), n_mc=1, ds0=75.0, PHIcxy_mc=d["PHIcxy_mc"])
 
     def seg(ii, with_i2=False):
         x, y, _, i1, i2 = get_one_polygon(C["x_mc"], C["y_mc"], ii)
         _, PHI, _, _, _ = get_one_polygon(d["QS_mc"], d["PHIbr_mc"], ii)
-        out = (x, y, get_one_section(d["shadow_mc"], ii), PHI, i1, get_cyclic(x, y, 75.0))
+        PHIcxy = get_one_section(d["PHIcxy_mc"], ii)
+        out = (x, y, get_one_section(d["shadow_mc"], ii), PHI, PHIcxy, i1, get_cyclic(x, y, 75.0))
         return out + (i2,) if with_i2 else out
 
     spit = dict(method="default", spitwidth=50.0, owscale=0.1, owtimescale=0.0, Dsf=8.0, Dbb=4.0, bheight=2.0)
@@ -141,60 +114,6 @@ def test_overwash_closed_section_matches_octave():
     np.testing.assert_array_equal(C["x_mc"], ref["x_mc"].ravel())
     np.testing.assert_array_equal(C["y_mc"], ref["y_mc"].ravel())
     assert C["y_mc"][0] == C["y_mc"][-1] != d["y_mc"][0]      # the closed ends moved together
-
-
-@pytest.mark.skipif(not _lfs_available(os.path.join(REPO, "input_25_contour.nc")),
-                    reason="Git LFS data not available")
-def test_model_cyclic_island_matches_octave(tmp_path):
-    """6 days (49 steps) with the two open beaches plus a thin closed island
-    (overwash active), compared with ShorelineS in GNU Octave 8.4, daily output."""
-    from shorelines import ShorelineS
-    c = scipy.io.loadmat(os.path.join(DATA, "cyclic_coastline_input.mat"))
-    S = dict(reftime="2000-01-01", endofsimulation="2000-01-07", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
-             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
-             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", boundaryconditionstart="periodic",
-             boundaryconditionend="periodic", d=10, dt=1 / (365 * 8), tc=0, storageinterval=1,
-             outputdir=str(tmp_path), suppresshighangle=0)
-    model = ShorelineS(S, verbose=False, save_output=False)
-    O = model.run()
-    assert np.nansum(model.COAST["cyclic_mc"]) == 1                 # one closed section
-    ref = scipy.io.loadmat(os.path.join(DATA, "octave_cyclic_6day_output.mat"), squeeze_me=False,
-                           struct_as_record=False)["O"][0, 0]
-    for f in ("x", "y", "x1", "y1", "distx", "n"):
-        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
-    for f in ("QS", "HSo", "PHIo", "TP", "PHI", "PHIbr", "dPHIbr", "PHIc", "PHIf"):
-        a = getattr(ref, f)
-        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
-        np.testing.assert_allclose(O[f], a, rtol=0, atol=1e-10 * np.nanmax(np.abs(a)), err_msg=f)
-
-
-# ---------------------------------------------------------------------------
-def test_model_synthetic_waves_closed_matches_octave(tmp_path):
-    """The current hindcast_run settings (start 1999-08-01, closed boundaries,
-    synthetic waves of sinth_waves.m, d50 = 1e-4, gamma = 0.5): 2 days compared
-    with ShorelineS in GNU Octave 8.4."""
-    from shorelines import ShorelineS
-    wave_file = os.path.join(REPO, "sinthe_waves.nc")
-    if not _lfs_available(wave_file):
-        pytest.skip("sinthe_waves.nc not available (git lfs pull)")
-    c = scipy.io.loadmat(os.path.join(DATA, "synthetic_closed_input.mat"))
-    S = dict(reftime="1999-08-01", endofsimulation="1999-08-03", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
-             wvcfile=wave_file, interpolationmethod="alongshoremapping", ddeep=25, dnearshore=25, ds0=75,
-             trform="KAMP", boundaryconditionstart="closed", boundaryconditionend="closed", d=10, d50=1e-4,
-             gamma=0.5, dt=1 / (365 * 8), tc=0, storageinterval=1, outputdir=str(tmp_path),
-             suppresshighangle=0)
-    O = ShorelineS(S, verbose=False, save_output=False).run()
-    ref = scipy.io.loadmat(os.path.join(DATA, "octave_synthetic_closed_2day_output.mat"), squeeze_me=False,
-                           struct_as_record=False)["O"][0, 0]
-    for f in ("x", "y", "x1", "y1", "distx", "n"):
-        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
-    # The synthetic directions include waves from the land side, where the
-    # angle is clipped near 90 degrees and dividing by its cosine magnifies
-    # last-bit differences of libm (a few points at ~3e-11 relative).
-    for f in ("QS", "dSds", "HSo", "PHIo", "TP", "HS", "PHI", "HSbr", "PHIbr", "dPHIbr", "hbr"):
-        a = getattr(ref, f)
-        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
-        np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
 
 
 # ---------------------------------------------------------------------------
@@ -271,15 +190,17 @@ def test_merge_crossing_sections_matches_octave():
         n_merged += C["x_mc"].size != x.size
     assert n_merged > 250
 
-    # the merge of beaches 2 and 3 on 2002-06-10 in the hindcast with the
-    # synthetic waves (input recorded in the Python run, output from Octave)
+    # a step of the hindcast with the synthetic waves (2002-06-10) in which an island
+    # touches a beach (input recorded in the Python run, output from Octave). The two
+    # crossings lie 4 cm apart; get_intersections merges crossings closer than 1e-5
+    # times the largest segment index (uniquetol, since 2025-09), so ShorelineS sees
+    # one crossing and merges a time step later.
     ev = scipy.io.loadmat(os.path.join(DATA, "merge_event_synthetic_waves.mat"))["ev"]
     ref = scipy.io.loadmat(os.path.join(DATA, "merge_event_synthetic_waves_octave.mat"))["out"]
     for k in range(ev.shape[0]):
         C = merge_coastlines_mc(dict(x_mc=ev[k, 0].ravel().copy(), y_mc=ev[k, 1].ravel().copy(), ds0=75.0))
         np.testing.assert_array_equal(C["x_mc"], ref[k, 0].ravel())
         np.testing.assert_array_equal(C["y_mc"], ref[k, 1].ravel())
-        assert np.isnan(C["x_mc"]).sum() < np.isnan(ev[k, 0]).sum()      # one section fewer
 
 
 def test_help_lists_every_parameter_with_its_default():
@@ -294,98 +215,60 @@ def test_help_lists_every_parameter_with_its_default():
         assert line.split()[1] == _fmt(defaults[name])
 
 
-@pytest.mark.parametrize("case, settings", [
-    ("A", dict(smoothrefrac=0.5)),
-    ("B", dict(smoothrefrac=1)),
-    ("C", dict(boundaryconditionstart="Angleconstant", boundaryconditionend="Angleconstant")),
-    ("D", dict(boundaryconditionstart="Fixed", boundaryconditionend="Fixed")),
-    ("E", dict(boundaryconditionstart=["Closed", 5000], boundaryconditionend="gradient:200", smoothrefrac=0.3)),
-])
-def test_smoothrefrac_and_boundary_conditions_match_octave(tmp_path, case, settings):
-    """smoothrefrac and the boundary conditions Angleconstant/Gradient, Fixed and
-    {'Closed', Q}: 2 days compared with ShorelineS in GNU Octave 8.4 (case E gives
-    {'Gradient', 200} as 'gradient:200', the command-line form)."""
+# ---------------------------------------------------------------------------
+# Model runs (reference_cases.py) against ShorelineS in GNU Octave 8.4
+# (tests/data/octave_<case>_output.mat, written by make_references.py).
+from reference_cases import MODEL_CASES, model_settings  # noqa: E402
+
+_COAST_FIELDS = ("x", "y", "distx", "it", "dt", "nt", "time", "timenum")
+_WAVE_FIELDS = ("QS", "HSo", "PHIo", "TP", "HStdp", "PHItdp", "HSbr", "PHIbr", "PHIc", "PHIcxy", "PHIf", "h0")
+# Coastline tolerances [m] of the cases that are not bit-identical. The breaking-wave
+# iteration leaves last-bit differences in HSbr at a few points; the critical angle
+# (get_Sphimax, a parabola fit that is ill-conditioned near convergence) and the
+# clipping of the wave angles to it (suppresshighangle) amplify them, to ~1e-6 m after
+# 2 days (with SHORELINES_EXACT_LIBM=1, which uses the system LAPACK like Octave, F10
+# is bit-identical too).
+_COAST_TOL = {"F06": 1e-5, "F10": 1e-8, "F11": 1e-7}
+
+
+@pytest.mark.skipif(not _lfs_available(os.path.join(REPO, "input_25_contour.nc")),
+                    reason="Git LFS data not available")
+@pytest.mark.parametrize("case", list(MODEL_CASES))
+def test_model_matches_octave(tmp_path, case):
+    """The coastline (and the time stepping) is bit-identical to ShorelineS; waves
+    and transport agree to round-off. Waves from the land side (synthetic waves)
+    are clipped near 90 degrees, where dividing by the cosine magnifies last-bit
+    differences of libm (to ~1e-10 relative)."""
     from shorelines import ShorelineS
-    c = scipy.io.loadmat(os.path.join(DATA, "synthetic_closed_input.mat"))
-    S = dict(reftime="1999-08-01", endofsimulation="1999-08-03", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
-             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
-             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", d50=1e-4, boundaryconditionstart="closed",
-             boundaryconditionend="closed", d=10, dt=1 / (365 * 8), tc=0, storageinterval=1,
-             outputdir=str(tmp_path), suppresshighangle=0)
-    S.update(settings)
-    O = ShorelineS(S, verbose=False, save_output=False).run()
-    ref = scipy.io.loadmat(os.path.join(DATA, f"octave_bc_smoothrefrac_{case}_2day_output.mat"), squeeze_me=False,
+    S = model_settings(case, tmp_path)
+    if S["wvcfile"].endswith("sinthe_waves.nc") and not _lfs_available(S["wvcfile"]):
+        pytest.skip("sinthe_waves.nc not available (git lfs pull)")
+    model = ShorelineS(S, verbose=False, save_output=False)
+    O = model.run()
+    ref = scipy.io.loadmat(os.path.join(DATA, f"octave_{case}_output.mat"), squeeze_me=False,
                            struct_as_record=False)["O"][0, 0]
-    for f in ("x", "y", "x1", "y1", "distx", "n"):
-        np.testing.assert_array_equal(O[f], getattr(ref, f), err_msg=f)
-    # waves at angles near 90 degrees magnify last-bit libm differences (see above)
-    for f in ("QS", "dSds", "HSo", "PHIo", "TP", "HS", "PHI", "HSbr", "PHIbr", "dPHIbr", "hbr", "PHIc"):
+    tol = _COAST_TOL.get(case, 0)
+    for f in _COAST_FIELDS:
         a = getattr(ref, f)
-        np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
-        np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
-
-
-# Options for sensitivity analyses: each against 2 days of ShorelineS in GNU Octave 8.4.
-# The coastline is bit-identical, except in the cases that use the exact value of
-# the critical angle (get_Sphimax): its parabola fit is ill-conditioned near
-# convergence, so last-bit differences of the 3x3 solve grow to ~1e-7 deg (with
-# SHORELINES_EXACT_LIBM=1, which uses the system LAPACK like Octave, F10 and F11 are
-# bit-identical too). suppresshighangle then clips the angles to that value and adds
-# 1 % to the transport where the angle equals it exactly, a discontinuous rule that
-# turns those differences into centimetres (F06, F11).
-_D_XYD = [[1865023.6030439204, 5848190.137671227, 8.0], [1881127.2152420229, 5830048.109426575, 12.0], [1900633.8465522733, 5816429.303559587, 10.0]]
-SENSITIVITY_CASES = [
-    ("F01", dict(trform="CERC"), 0),
-    ("F02", dict(trform="CERC2"), 0),
-    ("F03", dict(trform="CERC3"), 0),
-    ("F04", dict(trform="MILH"), 0),
-    ("F05", dict(trform="VR14"), 0),
-    ("F06", dict(suppresshighangle=1), 0.05),
-    ("F07", dict(relaxationlength=500), 0),
-    ("F08", dict(phif=20), 0),
-    ("F10", dict(sphimax="estimate"), 1e-8),
-    ("F11", dict(trform="CERC3", qscal=0.3, suppresshighangle=1, relaxationlength=300), 0.05),
-    ("F12", dict(d=np.array(_D_XYD)), 0),
-]
-
-
-def _sensitivity_settings(tmp_path, settings):
-    c = scipy.io.loadmat(os.path.join(DATA, "synthetic_closed_input.mat"))
-    S = dict(reftime="1999-08-01", endofsimulation="1999-08-03", xmc=c["xmc"].ravel(), ymc=c["ymc"].ravel(),
-             wvcfile=os.path.join(REPO, "input_25_contour.nc"), interpolationmethod="alongshoremapping",
-             ddeep=25, dnearshore=25, ds0=75, trform="KAMP", d50=1e-4, boundaryconditionstart="closed",
-             boundaryconditionend="closed", d=10, dt=1 / (365 * 8), tc=0, storageinterval=1,
-             outputdir=str(tmp_path), suppresshighangle=0)
-    S.update(settings)
-    return S
-
-
-@pytest.mark.parametrize("case, settings, tol", SENSITIVITY_CASES, ids=[c[0] for c in SENSITIVITY_CASES])
-def test_sensitivity_options_match_octave(tmp_path, case, settings, tol):
-    from shorelines import ShorelineS
-    O = ShorelineS(_sensitivity_settings(tmp_path, settings), verbose=False, save_output=False).run()
-    ref = scipy.io.loadmat(os.path.join(DATA, f"octave_sensitivity_{case}_2day_output.mat"), squeeze_me=False,
-                           struct_as_record=False)["O"][0, 0]
-    for f in ("x", "y", "x1", "y1", "n"):
-        a = getattr(ref, f)
-        if tol == 0:
+        if tol == 0 or f not in ("x", "y", "distx"):
             np.testing.assert_array_equal(O[f], a, err_msg=f)
         else:
             np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
             np.testing.assert_allclose(O[f], a, rtol=0, atol=tol, err_msg=f)
     if tol == 0:
-        for f in ("QS", "HSbr", "PHIbr", "dPHIbr", "PHIc", "PHIf"):
+        for f in _WAVE_FIELDS:
             a = getattr(ref, f)
+            np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
             np.testing.assert_allclose(O[f], a, rtol=1e-9, atol=1e-13 * np.nanmax(np.abs(a)), err_msg=f)
-
-
-def test_preserveorientation_fails_as_in_shorelines(tmp_path):
-    """With two sections, S.preserveorientation = 1 stops ShorelineS in Octave at the
-    third time step ('index (318): out of bound 317'); the port raises the same error."""
-    from shorelines import ShorelineS
-    with pytest.raises(IndexError, match="preserveorientation"):
-        ShorelineS(_sensitivity_settings(tmp_path, dict(preserveorientation=1)), verbose=False,
-                   save_output=False).run()
+    if case == "cyclic_island_6day":
+        assert np.nansum(model.COAST["cyclic_mc"]) == 1                 # one closed section
+    if case == "T01":
+        # sub-steps: the first output follows the 40 sub-steps of the first time step;
+        # the run ends a few 1e-8 h after S.endofsimulation, so (as in ShorelineS) there
+        # is no output at the end
+        assert O["it"].ravel().tolist() == [40] and model.TIME["it"] == 363
+    if case == "T02":
+        assert O["timenum"].size == 4                                   # 3 dates + the last step
 
 
 def test_port_status_lists_every_shorelines_function():

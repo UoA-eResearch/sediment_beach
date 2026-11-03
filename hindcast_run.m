@@ -32,6 +32,7 @@ S.dt = 1/(365*8); %number of time step. unit = years
 S.tc=0; %fixed time step
 S.storageinterval=interv;  % Time interval of storage of output file ('output.mat'; [day])
 S.outputdir=file_out;
+S.outputfile='output'; % output file: <file_out>/output.mat (ShorelineS default: shorelines_output.mat)
 
 %%% High angle AND SPIT FORMATION corrections%%
 S.suppresshighangle = 0; %If wave direction exceeds a threshold (critical angle), the model forces it back to that threshold instead of letting it go higher.

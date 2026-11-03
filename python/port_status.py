@@ -25,7 +25,7 @@ STATUS = {
     # --- main program and set-up
     "ShorelineS": ("partial", "model.ShorelineS.run, model.ShorelineS.step", "time loop of the supported processes"),
     "initialize_defaultvalues": ("partial", "model.DEFAULTS", "defaults of the supported settings"),
-    "initialize_time": ("partial", "model.ShorelineS.__init__", "fixed time step only"),
+    "initialize_time": ("partial", "model.ShorelineS.__init__", "fixed time step (with sub-steps) only"),
     "initialize_output": ("folded", "model._O_FIELDS", ""),
     "prepare_coastline": ("partial", "model.ShorelineS.__init__", "coastline from S.xmc/S.ymc"),
     "prepare_waveconditions": ("partial", "model.ShorelineS.__init__", "wave time series at stations"),
@@ -34,9 +34,11 @@ STATUS = {
     "collect_variables": ("partial", "model.ShorelineS.step, model._collect", "no dune/mud fields"),
     "get_segmentdata": ("partial", "model.ShorelineS._segment", "no dune/mud fields"),
     "save_shorelines": ("partial", "model.ShorelineS._store, model.ShorelineS.save", "no output grids or profiles"),
-    "get_timestep": ("folded", "model.ShorelineS.step", "fixed time step only"),
-    "get_coastlineupdate_timestep": ("folded", "model.ShorelineS.step, waves.introduce_wave",
-                                     "fixed time step only"),
+    "save_shorelines_netcdf": ("no", "", "NetCDF output (S.netcdf = 1)"),
+    "get_timestep": ("full", "model.ShorelineS._get_timestep", ""),
+    "get_coastlineupdate_timestep": ("partial", "model.ShorelineS._get_coastlineupdate_timestep",
+                                     "fixed time step (S.tc = 0) with sub-steps; not the adaptive time step"),
+    "get_nexttimestep": ("folded", "model.ShorelineS.step, model.ShorelineS.run", ""),
     # --- grid and coastline
     "make_sgrid_mc": ("partial", "coastline.make_sgrid_mc", "griddingmethod 2 only"),
     "get_gridsize": ("no", "", "used by griddingmethod 1"),
@@ -100,6 +102,8 @@ STATUS = {
     "isoctave": ("not-needed", "", "MATLAB/Octave check"),
     "get_fields": ("not-needed", "", "MATLAB struct utility"),
     "get_spikesremoved": ("not-needed", "", "not called anywhere in ShorelineS"),
+    "snap_coastline_to_data": ("not-needed", "", "a test script, not called anywhere in ShorelineS"),
+    "nc_readfromgroup": ("not-needed", "", "only used by snap_coastline_to_data"),
     "get_fallvelocity": ("no", "", "shoreface nourishments"),
     # --- not ported: hard structures and groynes
     "prepare_structures": ("no", "", "hard structures"),

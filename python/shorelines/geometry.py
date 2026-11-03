@@ -7,7 +7,7 @@ answers as calling ``get_intersections`` in a loop.
 """
 import numpy as np
 
-from .mfuncs import cosd, m_hypot, sind
+from .mfuncs import cosd, m_hypot, sind, uniquetol_ia
 
 EPS_CROSS = 1e-5  # tolerance used by get_intersections.m
 
@@ -78,11 +78,13 @@ def _crossings_of_pairs(A, B, ia, ib):
                            B["xmin"][ib], B["xmax"][ib], B["ymin"][ib], B["ymax"][ib])
 
 
-def get_intersections(xi0, yi0, xj0=None, yj0=None):
+def get_intersections(xi0, yi0, xj0=None, yj0=None, disentangle=False):
     """All crossings of polyline i with polyline j (or with itself).
 
     Returns xcr, ycr, indc, inds, indi, indj, ui, uj as in get_intersections.m
-    (indices 1-based)."""
+    (indices 1-based). ``disentangle=True`` is the 3-argument call
+    get_intersections(xi0, yi0, disentangle): self-crossings, keeping the
+    mirrored crossings as well."""
     removesameindex = xj0 is None
     xi0 = np.asarray(xi0, dtype=float).ravel()
     yi0 = np.asarray(yi0, dtype=float).ravel()
@@ -148,13 +150,16 @@ def get_intersections(xi0, yi0, xj0=None, yj0=None):
             flat_y[idx] = np.nan
         xc = flat_x.reshape((m0, n0), order="F")
         yc = flat_y.reshape((m0, n0), order="F")
-        # only crossings of the first line, not the mirrored ones
-        I, J = np.meshgrid(np.arange(m0), np.arange(n0), indexing="ij")
-        # mat0=meshgrid(1:m0,1:n0) has mat0(r,c)=c, so idmat=mat0>mat0' is c > r
-        idmat = J > I
-        xc[idmat] = np.nan
-        yc[idmat] = np.nan
+        if not disentangle:
+            # only crossings of the first line, not the mirrored ones
+            I, J = np.meshgrid(np.arange(m0), np.arange(n0), indexing="ij")
+            # mat0=meshgrid(1:m0,1:n0) has mat0(r,c)=c, so idmat=mat0>mat0' is c > r
+            idmat = J > I
+            xc[idmat] = np.nan
+            yc[idmat] = np.nan
         if xi0[0] == xi0[-1] and yi0[0] == yi0[-1] and xc.size:
+            xc[0, -1] = np.nan
+            yc[0, -1] = np.nan
             xc[-1, 0] = np.nan
             yc[-1, 0] = np.nan
 
@@ -176,9 +181,9 @@ def get_intersections(xi0, yi0, xj0=None, yj0=None):
     uj = np.fmin(np.fmax(uj, 0.0), 1.0)
     indi1 = indi + 1.0
     indj1 = indj + 1.0
-    _, idu = np.unique(indi1 + ui, return_index=True)
+    idu = uniquetol_ia(indi1 + ui, EPS_CROSS)
     xcr, ycr, indi1, indj1, ui, uj = xcr[idu], ycr[idu], indi1[idu], indj1[idu], ui[idu], uj[idu]
-    _, idu = np.unique(indj1 + uj, return_index=True)
+    idu = uniquetol_ia(indj1 + uj, EPS_CROSS)
     xcr, ycr, indi1, indj1, ui, uj = xcr[idu], ycr[idu], indi1[idu], indj1[idu], ui[idu], uj[idu]
     return xcr, ycr, indi1 + ui, indj1 + uj, indi1, indj1, ui, uj
 
@@ -280,9 +285,9 @@ def find_shadows_mc(xq, yq, x_mc, y_mc, PHI, PHItdp, PHIbr, distw):
     length = np.full(nq, 5 * m_hypot(np.max(xq) - np.min(xq), np.max(yq) - np.min(yq)))
     if distw is not None and np.size(distw):
         distw = np.asarray(distw, dtype=float)
-        lenBREAKER = np.minimum(lenBREAKER, distw * 0.2)
-        lenSURF = np.minimum(lenSURF, distw * 0.8)
-        length = np.maximum(distw - lenBREAKER - lenSURF, 1)
+        lenBREAKER = np.fmin(lenBREAKER, distw * 0.5)    # at most 50 % / 100 % of the distance to the
+        lenSURF = np.fmin(lenSURF, distw * 1)            # nearest wave station (upstream 2025-09)
+        length = np.fmax(distw - lenBREAKER - lenSURF, 1)
     sbr, cbr = sind(PHIbr), cosd(PHIbr)
     stdp, ctdp = sind(PHItdp), cosd(PHItdp)
     so, co = sind(PHI), cosd(PHI)

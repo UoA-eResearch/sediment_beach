@@ -201,7 +201,7 @@ def introduce_wave(WAVE, TIME, COAST):
     t = WVC["timenum"]
     tnow = TIME["tnow"]
     if np.any(t != t[0]):
-        if tnow >= np.max(t) or tnow <= np.min(t):
+        if tnow > np.max(t) or tnow < np.min(t):
             # recycle the wave time series (as introduce_wave.m)
             dt = t - tnow
             mdt = mmod(dt, 365.25)
@@ -209,8 +209,15 @@ def introduce_wave(WAVE, TIME, COAST):
             dtrewind = dt[idt]
             if np.min(mdt) > 30 or (np.max(t) - np.min(t)) < 120:
                 dtrewind = dt[0]
-            WVC["timenum"] = t = t - dtrewind
-            WAVE["dtrewind"] = WAVE.get("dtrewind", 0.0) + dtrewind
+            if tnow + 6 / 24 > np.min(t) and tnow < np.min(t):
+                # less than 6 hours before the start: stretch the first interval (upstream 2025-09)
+                t = t.copy()
+                t[0] = t[0] - dtrewind
+                t[1] = t[1] - dtrewind / 2
+                WVC["timenum"] = t
+            else:
+                WVC["timenum"] = t = t - dtrewind
+                WAVE["dtrewind"] = WAVE.get("dtrewind", 0.0) + dtrewind
         it = np.flatnonzero(t <= tnow)
         if it.size and it[-1] < t.size - 1 and np.all(np.diff(t) > 0):
             i = it[-1]
@@ -234,6 +241,7 @@ def introduce_wave(WAVE, TIME, COAST):
     WAVE["PHIo"] = mmod(var2N["Dir"][0] + 0.0, 360.0)          # CC.PHIcor = 0
     WAVE["TP"] = np.fmax(var1N["Tp"][0], eps)
     WAVE["dist"] = distw
+    WAVE["Prob"] = 1.0
     WAVE["i_mc"] = COAST["i_mc"]
     return WAVE
 
@@ -403,12 +411,14 @@ def get_Sphimax(WAVE, TRANSP):
     W1["dPHItdp"] = np.full(nq, 35.0)
     W1["HStdp"] = np.fmax(WAVE["HStdp"], eps)
     W1 = wave_breakingheight(W1, TRANSP)
+    W1["HStdp"] = np.fmin(W1["HStdp"], WAVE["ddeep"] * 0.5)     # (after the breaking height, as upstream)
     QS1 = transport(TRANSP, W1, "QSmax")
     dPHI1 = W1["dPHItdp"].copy()
     W2 = dict(WAVE)
     W2["dPHItdp"] = np.full(nq, 45.0)
     W2["HStdp"] = np.fmax(WAVE["HStdp"], eps)
     W2 = wave_breakingheight(W2, TRANSP)
+    W2["HStdp"] = np.fmin(W2["HStdp"], WAVE["ddeep"] * 0.5)     # (after the breaking height, as upstream)
     QS2 = transport(TRANSP, W2, "QSmax")
     dPHI2 = W2["dPHItdp"].copy()
     Wm = dict(W1)
@@ -418,7 +428,7 @@ def get_Sphimax(WAVE, TRANSP):
     dPHIcrit = np.full(nq, np.nan)
     dPHIcritbr = np.full(nq, np.nan)
     QSmax = np.zeros(nq)
-    while (_mmin(err) > eps or it <= 1) and it < 10:
+    while (_mmin(err) > eps or it <= 2) and it < 10:
         it += 1
         Wm["dPHItdp"] = dPHIm
         Wm = wave_breakingheight(Wm, TRANSP)
@@ -426,14 +436,13 @@ def get_Sphimax(WAVE, TRANSP):
         dPHImold = dPHIm.copy()
         inn = np.flatnonzero(err > eps)
         if inn.size:
-            # A = [d1^2 d1 1; d2^2 d2 1; dm^2 dm 1]; ShorelineS uses a = A\B with
-            # B=[QS1;QS2;QSm] (3 x nq) and then a(1), a(2), i.e. the first column
-            # of the solution (the transport of the first grid point).
+            # parabola through (dPHI1, QS1), (dPHI2, QS2), (dPHIm, QSm) of each point:
+            # a = A\B with A = [d1^2 d1 1; d2^2 d2 1; dm^2 dm 1], B = [QS1; QS2; QSm]
             d1, d2, dm = dPHI1[inn], dPHI2[inn], dPHIm[inn]
             A = np.stack([np.stack([d1 * d1, d1, np.ones_like(d1)], -1),
                           np.stack([d2 * d2, d2, np.ones_like(d2)], -1),
                           np.stack([dm * dm, dm, np.ones_like(dm)], -1)], 1)
-            b = np.broadcast_to(np.array([QS1[0], QS2[0], QSm[0]]), (inn.size, 3)).copy()
+            b = np.stack([QS1[inn], QS2[inn], QSm[inn]], -1)
             a = _solve3(A, b)
             with np.errstate(invalid="ignore", divide="ignore"):
                 dPHIm[inn] = -a[:, 1] / (2 * a[:, 0])
@@ -454,6 +463,9 @@ def get_Sphimax(WAVE, TRANSP):
     WAVE["dPHIcrit"] = interpNANs(dPHIcrit)
     WAVE["dPHIcritbr"] = interpNANs(dPHIcritbr)
     TRANSP["QSmax"] = interpNANs(QSmax)
+    WAVE["dPHIcrit"][np.isnan(WAVE["dPHIcrit"])] = 45
+    WAVE["dPHIcritbr"][np.isnan(WAVE["dPHIcritbr"])] = 45
+    TRANSP["QSmax"][np.isnan(TRANSP["QSmax"])] = 0
     return WAVE, TRANSP
 
 

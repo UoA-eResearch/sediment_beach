@@ -11,7 +11,7 @@ from .merge import merge_crossing_sections
 from .mfuncs import (msum, atan2d, cosd, get_clockpoly, get_cyclic, get_mod,
                      get_nansremoved, get_one_polygon, get_one_section,
                      insert_section, interp1, m_hypot, mmod, sind)
-from .waves import interpolate_on_grid
+from .waves import interp_weighted_distance, interpolate_on_grid
 
 _DBL_EPS = np.finfo(float).eps
 
@@ -172,19 +172,13 @@ def get_transportpoints(COAST, i_mc_range=None):
 # ---------------------------------------------------------------------------
 def get_coastline_orientation(COAST):
     PHIc = mmod(360.0 - atan2d(np.diff(COAST["y"]), np.diff(COAST["x"])), 360)
-    COAST["PHIcxy"] = mmod(360.0 - atan2d(np.diff(COAST["yq"]), np.diff(COAST["xq"])), 360)
-    if np.isnan(COAST["PHIc0bnd"][0]):
-        COAST["PHIc0bnd"][0] = PHIc[0]
-    if np.isnan(COAST["PHIc0bnd"][1]):
-        COAST["PHIc0bnd"][1] = PHIc[-1]
-    if COAST["gridchange"] == 1:
-        COAST["PHIcxy0"] = COAST["PHIcxy"]
-    else:
-        COAST["PHIcxy0"] = get_one_section(COAST["PHIcxy0_mc"], COAST["i_mc"])
+    PHIcxy = mmod(360.0 - atan2d(np.diff(COAST["yq"]), np.diff(COAST["xq"])), 360)
+    COAST["PHIcxy"] = PHIcxy
     if COAST["cyclic"]:
         PHIc = np.concatenate([PHIc[-1:], PHIc, PHIc[:1]])
     else:
-        PHIc = np.concatenate([PHIc[:1], PHIc, PHIc[-1:]])
+        # boundary values from the outer segments of the transport grid (upstream 2025-09)
+        PHIc = np.concatenate([PHIcxy[:1], PHIc, PHIcxy[-1:]])
         # Angleconstant/Gradient: the boundary angle is held at its first value (or
         # at the value given). As in ShorelineS, the value is stored in COAST and so
         # shared by all sections and kept over the time steps.
@@ -195,6 +189,20 @@ def get_coastline_orientation(COAST):
                     bc[1] = float(PHIc[k])
                 else:
                     PHIc[k] = bc[1]
+    if COAST["gridchange"] == 1 or COAST.get("mergegrid", 0) == 1:
+        COAST["PHIcxy0"] = PHIcxy
+        # ShorelineS interpolates the previous orientations PHIcxy1_mc (located at the old
+        # coastline points x1_mc) onto the new points, inside a try-block. That call only
+        # succeeds when PHIcxy1_mc has as many values as x1_mc (one per coastline point,
+        # which holds with the transport points of this port); otherwise it fails on an
+        # index error and PHIcxy0 = PHIcxy is kept.
+        P1 = COAST.get("PHIcxy1_mc")
+        if P1 is not None and np.size(P1) == np.size(COAST["x1_mc"]) and np.size(P1) >= 1:
+            _, v2, _ = interp_weighted_distance(COAST["x"], COAST["y"], COAST["x1_mc"], COAST["y1_mc"],
+                                                {}, {"data": np.asarray(P1, dtype=float).ravel()[None, :]})
+            COAST["PHIcxy0"] = v2["data"][0]
+    else:
+        COAST["PHIcxy0"] = get_one_section(COAST["PHIcxy1_mc"], COAST["i_mc"])
     COAST["PHIc"] = PHIc
     COAST["PHIcs"] = PHIc
     if COAST["smoothrefrac"] > 0:
@@ -304,25 +312,23 @@ def coastline_change(COAST, TRANSP, TIME):
     q_tot = np.zeros(n)          # no shoreface nourishments
     SLRo = 0.0
     dn = (dndt + (rate_density / h0) - SLRo / COAST["tanbeta"] + (q_tot / h0)) * TIME["dt"]
+    PHIcxy0 = np.asarray(COAST["PHIcxy0"], dtype=float)
+    dx = -dn * (y[ip1] - y[im1]) / (2 * ds)
+    dy = dn * (x[ip1] - x[im1]) / (2 * ds)
     if COAST["preserveorientation"] == 1:
         # move normal to the orientation of the initial grid (PHIcxy0) instead of the current coast
-        PHIcxy0 = np.asarray(COAST["PHIcxy0"], dtype=float)
-        k = np.arange(n) if COAST["cyclic"] else np.arange(1, n - 1)
-        if k.size and k[-1] >= PHIcxy0.size:
+        if PHIcxy0.size < n:
             raise IndexError("S.preserveorientation: PHIcxy0 has fewer points than the coastline "
                              "(as in ShorelineS, where this indexing fails too)")
-        dx = -dn * (y[ip1] - y[im1]) / (2 * ds)
-        dy = dn * (x[ip1] - x[im1]) / (2 * ds)
-        dx[k] = dn[k] * sind(PHIcxy0[k])
-        dy[k] = dn[k] * cosd(PHIcxy0[k])
+        dx = dn * sind(PHIcxy0[:n])
+        dy = dn * cosd(PHIcxy0[:n])
     else:
-        dx = -dn * (y[ip1] - y[im1]) / (2 * ds)
-        dy = dn * (x[ip1] - x[im1]) / (2 * ds)
-    if not COAST["cyclic"]:
-        dx[0] = dn[0] * sind(COAST["PHIc0bnd"][0])
-        dy[0] = dn[0] * cosd(COAST["PHIc0bnd"][0])
-        dx[-1] = dn[-1] * sind(COAST["PHIc0bnd"][1])
-        dy[-1] = dn[-1] * cosd(COAST["PHIc0bnd"][1])
+        # first and last point (also of a cyclic section) move normal to the first/last
+        # segment of the previous time step's transport grid (upstream 2025-09)
+        dx[0] = dn[0] * sind(PHIcxy0[0])
+        dy[0] = dn[0] * cosd(PHIcxy0[0])
+        dx[-1] = dn[-1] * sind(PHIcxy0[-1])
+        dy[-1] = dn[-1] * cosd(PHIcxy0[-1])
     xn = x + dx
     yn = y + dy
     if COAST["cyclic"]:
@@ -350,78 +356,70 @@ def coastline_change(COAST, TRANSP, TIME):
 
 # ---------------------------------------------------------------------------
 def find_overwash_mc(COAST, SPIT, TIME, seg):
-    """Overwash of narrow spits (find_overwash_mc.m, 'default' method).
+    """Overwash of narrow spits (find_overwash_mc.m, 'default' method, upstream 2025-09).
 
-    ``seg(i_mc)`` returns the section data (x, y, shadow, PHI, i1, cyclic), and
-    with ``with_i2=True`` also the index of its last point i2."""
+    ``seg(i_mc)`` returns the section data (x, y, shadow, PHI, PHIcxy, i1, cyclic),
+    and with ``with_i2=True`` also the index of its last point i2. Points move
+    along the transport-grid orientation PHIcxy (no structures)."""
     eps = 5.0
     x_mc = COAST["x_mc"]
     y_mc = COAST["y_mc"]
+    PHIcxy_mc = np.asarray(COAST["PHIcxy_mc"], dtype=float)
     dxt = np.zeros(x_mc.size)
     dyt = np.zeros(x_mc.size)
     if SPIT["method"].lower() != "default":
         raise NotImplementedError(f"spit method {SPIT['method']}")
+    spitwidth = SPIT["spitwidth"]
     for ii in range(1, COAST["n_mc"] + 1):
-        x, y, shadow, PHI, i1, cyclic = seg(ii)
+        x, y, shadow, PHI, PHIcxy, i1, cyclic = seg(ii)
         n = x.size
         if n < 3:
             return COAST
         phiw_coast = mmod(atan2d(sind(0.5 * (PHI[:-1] + PHI[1:])), cosd(0.5 * (PHI[:-1] + PHI[1:]))), 360.0)
-        idx = np.arange(n)
-        if cyclic:
-            im1 = idx - 1
-            im1[im1 < 0] = n - 2
-            ip1 = idx + 1
-            ip1[ip1 > n - 1] = 1
-        else:
-            im1 = np.maximum(idx - 1, 0)
-            ip1 = np.minimum(idx + 1, n - 1)
-        phic = 360 - atan2d(y[ip1] - y[im1], x[ip1] - x[im1])
-        sp, cp = sind(phic), cosd(phic)
-        x_nl = np.stack([x - eps * sp, x - SPIT["spitwidth"] * sp], axis=1)
-        y_nl = np.stack([y - eps * cp, y - SPIT["spitwidth"] * cp], axis=1)
-        active = ~np.asarray(shadow, dtype=bool)
+        sp, cp = sind(PHIcxy), cosd(PHIcxy)
+        x_nl = np.stack([x - eps * sp, x - spitwidth * sp], axis=1)
+        y_nl = np.stack([y - eps * cp, y - spitwidth * cp], axis=1)
+        active = ~np.asarray(shadow[:n], dtype=bool)
         cand = np.flatnonzero(active)
         if cand.size == 0:
             continue
         hit = cand[lines_with_crossing(x_mc, y_mc, x_nl[cand], y_nl[cand])]
         for i in hit:   # few points: use the exact crossing routine, in loop order
-            xcr, ycr, _, _, ind_mc, _, ui, _ = get_intersections(x_mc, y_mc, x_nl[i], y_nl[i])
+            xcr, ycr, _, _, ind_mc, _, _, _ = get_intersections(x_mc, y_mc, x_nl[i], y_nl[i])
             if xcr.size == 0 or np.any(np.isnan(xcr)) or np.any(np.isnan(ycr)):
                 continue
-            dist = m_hypot(xcr - x[i], ycr - y[i])
-            closest = int(np.nanargmin(dist)) if np.any(~np.isnan(dist)) else 0
-            distance = dist[closest]
-            j = int(ind_mc[closest])
-            weight_j = 1 - ui[closest]
-            weight_jp1 = ui[closest]
-            if weight_j == 1:
-                jp1 = j
-                weight_jp1 = 1
-            else:
-                jp1 = j + 1
+            ind = np.unique(np.concatenate([ind_mc, ind_mc + 1])).astype(int)   # 1-based points
+            distance = m_hypot(x_mc[ind - 1] - x[i], y_mc[ind - 1] - y[i])
+            ids = np.argsort(distance, kind="stable")
+            width = np.nanmin(distance) if np.any(~np.isnan(distance)) else np.nan
+            j = ind[ids[0]]
+            jp1 = ind[ids[1]]
+            weight_j = max(min(1 - distance[ids[0]] / spitwidth, 1), 0)
+            weight_jp1 = max(min(1 - distance[ids[1]] / spitwidth, 1), 0)
+            wght2 = weight_j + weight_jp1
+            with np.errstate(invalid="ignore", divide="ignore"):
+                weight_j = min(np.float64(weight_j) / wght2, 1)
+                weight_jp1 = min(np.float64(weight_jp1) / wght2, 1)
+            if max(j, jp1) > PHIcxy_mc.size:
+                raise IndexError("find_overwash_mc: index exceeds PHIcxy_mc (as in ShorelineS)")
+            fac = max(float(cosd(phiw_coast[i] - PHIcxy[i])), 0.0)
             if SPIT["owtimescale"] > 0:
-                dn_sea = -TIME["dt"] / SPIT["owtimescale"] * (SPIT["spitwidth"] - distance) * max(float(cosd(phiw_coast[i] - phic[i])), 0.0)
+                dn_sea = -TIME["dt"] / SPIT["owtimescale"] * max(spitwidth - width, 0) * fac
             else:
-                dn_sea = -SPIT["owscale"] * (SPIT["spitwidth"] - distance) * max(float(cosd(phiw_coast[i] - phic[i])), 0.0)
+                dn_sea = -SPIT["owscale"] * max(spitwidth - width, 0) * fac
             dn_back = -dn_sea * (SPIT["Dsf"] + SPIT["bheight"]) / (SPIT["Dbb"] + SPIT["bheight"])
-            ds_sea = m_hypot(x[ip1[i]] - x[im1[i]], y[ip1[i]] - y[im1[i]])
-            ddx = -dn_sea * (y[ip1[i]] - y[im1[i]]) / ds_sea
-            ddy = dn_sea * (x[ip1[i]] - x[im1[i]]) / ds_sea
             k = i + i1 - 1
-            dxt[k] += ddx
-            dyt[k] += ddy
-            j0, jp10 = j - 1, jp1 - 1
-            ds_back = m_hypot(x_mc[j0 + 1] - x_mc[j0], y_mc[j0 + 1] - y_mc[j0])
-            dxt[j0] = -dn_back * (y_mc[j0 + 1] - y_mc[j0]) / ds_back * weight_j
-            dyt[j0] = dn_back * (x_mc[j0 + 1] - x_mc[j0]) / ds_back * weight_j
-            dxt[jp10] = -dn_back * (y_mc[jp10] - y_mc[j0]) / ds_back * weight_jp1
-            dyt[jp10] = dn_back * (x_mc[jp10] - x_mc[j0]) / ds_back * weight_jp1
+            dxt[k] += dn_sea * sind(PHIcxy_mc[j - 1])
+            dyt[k] += dn_sea * cosd(PHIcxy_mc[j - 1])
+            dxt[j - 1] = dn_back * sind(PHIcxy_mc[j - 1]) * weight_j
+            dyt[j - 1] = dn_back * cosd(PHIcxy_mc[j - 1]) * weight_j
+            dxt[jp1 - 1] = dn_back * sind(PHIcxy_mc[jp1 - 1]) * weight_jp1
+            dyt[jp1 - 1] = dn_back * cosd(PHIcxy_mc[jp1 - 1]) * weight_jp1
     # closed sections: the first and last point are the same point, so they
     # must move together (only applied when they would move apart and the
     # first point is in the shadow, as in find_overwash_mc.m)
     for ii in range(1, COAST["n_mc"] + 1):
-        _, _, shadow, _, i1, cyclic, i2 = seg(ii, with_i2=True)
+        _, _, shadow, _, _, i1, cyclic, i2 = seg(ii, with_i2=True)
         if cyclic:
             a, b = i1 - 1, i2 - 1
             if m_hypot(dxt[a] - dxt[b], dyt[a] - dyt[b]) > 1 and shadow[0]:
@@ -429,6 +427,8 @@ def find_overwash_mc(COAST, SPIT, TIME, seg):
                 sdy = dyt[a] + dyt[b]
                 dxt[a] = dxt[b] = sdx
                 dyt[a] = dyt[b] = sdy
+    dxt[np.isnan(dxt)] = 0
+    dyt[np.isnan(dyt)] = 0
     COAST["x_mc"] = x_mc + dxt
     COAST["y_mc"] = y_mc + dyt
     return COAST
@@ -436,7 +436,9 @@ def find_overwash_mc(COAST, SPIT, TIME, seg):
 
 # ---------------------------------------------------------------------------
 def merge_coastlines(COAST, i_mc):
-    """Remove a self-intersecting loop of section i_mc (split into 2 sections)."""
+    """Remove a self-intersecting loop of section i_mc (split into 2 sections);
+    one or two crossings (upstream 2025-09). Returns COAST; COAST["merged"] is 1
+    when the section was split."""
     x, y, _, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], i_mc)
     x = x.copy()
     y = y.copy()
@@ -448,66 +450,73 @@ def merge_coastlines(COAST, i_mc):
         COAST["x_mc"], COAST["y_mc"] = insert_section(x, y, COAST["x_mc"], COAST["y_mc"], i_mc)
     xx, yy, indi, indj, _, _, _, _ = get_intersections(x, y)
     xx0 = np.unique(xx)
+    f = lambda v: int(math.floor(v))
+    c = lambda v: int(math.ceil(v))
+    COAST["merged"] = 0
     if xx0.size == 2:
         ind = np.sort(np.concatenate([indi[:2], indj[:2]]))
-        f = lambda v: int(math.floor(v))
-        c = lambda v: int(math.ceil(v))
-        xnew = np.concatenate([x[:f(ind[0])], [xx[0]], x[c(ind[3]) - 1:], [np.nan],
-                               [xx[1]], x[c(ind[1]) - 1:f(ind[2])], [xx[1]]])
-        ynew = np.concatenate([y[:f(ind[0])], [yy[0]], y[c(ind[3]) - 1:], [np.nan],
-                               [yy[1]], y[c(ind[1]) - 1:f(ind[2])], [yy[1]]])
-        COAST["x_mc"], COAST["y_mc"] = insert_section(xnew, ynew, COAST["x_mc"], COAST["y_mc"], i_mc)
-    COAST = get_transportpoints(COAST, [i_mc])
+        a, b = ind[0], ind[3]          # outer loop
+        p, q = ind[1], ind[2]          # inner loop
+    elif xx0.size == 1:
+        ind = np.sort(np.array([indi[0], indj[0]]))
+        a, b = ind[0], ind[1]
+        p, q = ind[0], ind[1]
+    else:
+        return COAST
+    xnew = np.concatenate([x[:f(a)], x[c(b) - 1:], [np.nan], x[c(p) - 1:f(q)], [x[c(p) - 1]]])
+    ynew = np.concatenate([y[:f(a)], y[c(b) - 1:], [np.nan], y[c(p) - 1:f(q)], [y[c(p) - 1]]])
+    COAST["merged"] = 1
+    COAST["x_mc"], COAST["y_mc"] = insert_section(xnew, ynew, COAST["x_mc"], COAST["y_mc"], i_mc)
     return COAST
 
 
 def merge_coastlines_mc(COAST):
-    """Merge crossing coastline sections (merge_coastlines_mc.m)."""
-    st = dict(eps=0.1, IDcyclic=[], id2=None)       # function-level state of the MATLAB code
+    """Merge crossing coastline sections (merge_coastlines_mc.m, upstream 2025-09).
+    Sets COAST["mergegrid"] = 1 when sections were merged."""
+    st = dict(eps=0.1)                               # function-level state of the MATLAB code
+    COAST["mergegrid"] = 0
     _, _, n_mc, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], 1)
     ds0 = COAST["ds0"]
     for i_mc in range(1, n_mc):
         for j_mc in range(i_mc + 1, n_mc + 1):
             xi, yi, _, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], i_mc)
             xj, yj, _, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], j_mc)
-            if xi.size > 2 and xj.size > 2 and (abs(msum(xi) - msum(xj)) != 0 and abs(msum(yi) - msum(yj)) != 0):
+            xi, yi, xj, yj = xi.copy(), yi.copy(), xj.copy(), yj.copy()
+            same_element = abs(msum(xi) - msum(xj)) < 1e-6 and abs(msum(yi) - msum(yj)) < 1e-6
+            if xi.size > 2 and xj.size > 2:
                 cyclici = m_hypot(xi[-1] - xi[0], yi[-1] - yi[0]) < st["eps"]
                 cyclicj = m_hypot(xj[-1] - xj[0], yj[-1] - yj[0]) < st["eps"]
+                cwi = get_clockpoly(xi, yi) if cyclici else 1
+                cwj = get_clockpoly(xj, yj) if cyclicj else 1
+                if cwi < 1 and xi[-1] != xi[0] and yi[-1] != yi[0]:
+                    xi[-1] = xi[0]
+                    yi[-1] = yi[0]
+                if cwj < 1 and xj[-1] != xj[0] and yj[-1] != yj[0]:
+                    xj[-1] = xj[0]
+                    yj[-1] = yj[0]
                 if cyclici and not cyclicj:
                     xi, xj = xj, xi
                     yi, yj = yj, yi
                     cyclici, cyclicj = cyclicj, cyclici
-                cwi = get_clockpoly(xi, yi) if cyclici else 1
-                cwj = get_clockpoly(xj, yj) if cyclicj else 1
-                if cwi < 1 and xi[-1] != xi[0] and yi[-1] != yi[0]:
-                    xi = np.append(xi, xi[0])
-                    yi = np.append(yi, yi[0])
-                if cwj < 1 and xj[-1] != xj[0] and yj[-1] != yj[0]:
-                    xj = np.append(xj, xj[0])
-                    yj = np.append(yj, yj[0])
-                xcr, ycr, indi, indj, _, _, _, _ = get_intersections(xi, yi, xj, yj)
-                if xcr.size > 1 and xcr.size != 3:
+                    cwi, cwj = cwj, cwi
+                xx, yy, indc, inds, indi, indj, ui, uj = get_intersections(xi, yi, xj, yj)
+                if same_element:
+                    eps0 = 1e-6
+                    keep = (np.abs(indc - inds) > eps0) | ((ui > eps0) & (ui < 1 - eps0))
+                    xx, yy, indi, indj, ui, uj = xx[keep], yy[keep], indi[keep], indj[keep], ui[keep], uj[keep]
+                if xx.size > 1 and xx.size != 3 and cwi == 1:
+                    COAST["mergegrid"] = 1
                     xnewi, ynewi, xnewj, ynewj = merge_crossing_sections(
-                        st, xi, yi, xj, yj, cyclici, cyclicj, cwi, cwj, xcr, ycr, indi, indj)
-                else:                                # 0, 1 or 3 crossings: left unchanged
-                    xnewi, ynewi, xnewj, ynewj = xi, yi, xj, yj
-            elif xi.size <= 1 and xj.size > 2:
-                xnewi, ynewi, xnewj, ynewj = [-1e10], [-1e10], xj, yj
-            elif xi.size > 2 and xj.size <= 1:
-                xnewi, ynewi, xnewj, ynewj = xi, yi, [-1e10], [-1e10]
-            elif xi.size <= 2 and xj.size > 2:
-                xnewi, ynewi, xnewj, ynewj = [-1e10], [-1e10], xj, yj
-            elif xi.size > 1 and xj.size <= 2:
-                xnewi, ynewi, xnewj, ynewj = xi, yi, [-1e10], [-1e10]
-            elif abs(msum(xi) - msum(xj)) == 0 and abs(msum(yi) - msum(yj)) == 0:
-                xnewi, ynewi, xnewj, ynewj = xi, yi, [-1e10], [-1e10]
-            elif xi.size > 1 and yi.size > 1 and xj.size > 1 and yj.size > 1:
-                xnewi, ynewi, xnewj, ynewj = xi, yi, xj, yj
-            else:
-                xnewi, ynewi, xnewj, ynewj = [-1e10], [-1e10], [-1e10], [-1e10]
-            COAST["x_mc"], COAST["y_mc"] = insert_section(xnewi, ynewi, COAST["x_mc"], COAST["y_mc"], i_mc)
-            COAST["x_mc"], COAST["y_mc"] = insert_section(xnewj, ynewj, COAST["x_mc"], COAST["y_mc"], j_mc)
-            COAST["x_mc"], COAST["y_mc"] = get_nansremoved(COAST["x_mc"], COAST["y_mc"])
+                        st, xi, yi, xj, yj, cyclici, cyclicj, cwi, cwj, xx, yy, indi, indj, ui, uj)
+                    COAST["x_mc"], COAST["y_mc"] = insert_section(xnewi, ynewi, COAST["x_mc"], COAST["y_mc"], i_mc)
+                    COAST["x_mc"], COAST["y_mc"] = insert_section(xnewj, ynewj, COAST["x_mc"], COAST["y_mc"], j_mc)
+            if xi.size <= 2:
+                COAST["x_mc"], COAST["y_mc"] = insert_section([-1e10], [-1e10], COAST["x_mc"], COAST["y_mc"], i_mc)
+            if xj.size <= 2:
+                COAST["x_mc"], COAST["y_mc"] = insert_section([-1e10], [-1e10], COAST["x_mc"], COAST["y_mc"], j_mc)
+            # (the check for two identical sections that follows in ShorelineS can never
+            # hold: identical sections have same_element = 1)
+    COAST["x_mc"], COAST["y_mc"] = get_nansremoved(COAST["x_mc"], COAST["y_mc"])
     for i_mc in range(1, n_mc + 1):
         xi, yi, _, _, _ = get_one_polygon(COAST["x_mc"], COAST["y_mc"], i_mc)
         s = 0.0
@@ -532,44 +541,48 @@ def merge_coastlines_mc(COAST):
 
 
 def cleanup_nans(COAST):
-    """Remove redundant NaNs and (nearly) duplicate points."""
+    """Remove redundant NaNs and (nearly) duplicate points (cleanup_nans.m, upstream 2025-09)."""
     eps = 0.1
     x = list(COAST["x_mc"])
     y = list(COAST["y_mc"])
     isn = math.isnan
+    hyp = lambda a, b: float(m_hypot(x[a - 1] - x[b - 1], y[a - 1] - y[b - 1]))   # 1-based
     i = 1
     while i <= len(x):
         L = len(x)
-        if i == 1 and isn(x[0]):
-            x, y = x[1:], y[1:]
-        elif i == L and isn(x[i - 1]):
-            x, y = x[:-1], y[:-1]
-        elif 1 < i < L and isn(x[i - 2]) and isn(x[i]):
+        if i <= 3 and isn(x[i - 1]):
+            x, y = x[i:], y[i:]
+            i = 1
+        elif i >= L - 2 and isn(x[i - 1]):
+            x, y = x[:i - 1], y[:i - 1]
+            i = 1
+        elif 1 < i <= L - 1 and isn(x[i - 1]) and isn(x[i]):
+            x = x[:i - 1] + x[i:]
+            y = y[:i - 1] + y[i:]
+            i = 1
+        elif i <= L - 1 and isn(x[i - 1]) and isn(x[i + 1]):
             x = x[:i - 1] + x[i + 1:]
             y = y[:i - 1] + y[i + 1:]
-        elif 1 < i < L - 1 and isn(x[i - 2]) and isn(x[i + 1]):
+            i = 1
+        elif i <= L - 1 and isn(x[i - 1]) and isn(x[i + 2]):
             x = x[:i - 1] + x[i + 2:]
             y = y[:i - 1] + y[i + 2:]
-        elif i == L - 1 and isn(x[i - 1]):
-            x, y = x[:i - 1], y[:i - 1]
-        elif isn(x[i - 1]) and isn(x[i]):
+            i = 1
+        elif i <= L - 1 and hyp(i + 1, i) < eps:
             x = x[:i] + x[i + 1:]
             y = y[:i] + y[i + 1:]
-        elif i > 1 and float(m_hypot(x[i - 1] - x[i - 2], y[i - 1] - y[i - 2])) < eps:
-            x = x[:i - 1] + x[i:]
-            y = y[:i - 1] + y[i:]
             i = 1
-        elif (i > 2 and float(m_hypot(x[i - 1] - x[i - 3], y[i - 1] - y[i - 3])) < eps
-              and not isn(x[i - 3]) and not isn(x[i - 2]) and not isn(x[i - 1])):
-            x = x[:i - 1] + x[i:]
-            y = y[:i - 1] + y[i:]
+        elif i <= L - 2 and hyp(i + 2, i) < eps and not isn(x[i]):
+            x = x[:i + 1] + x[i + 2:]
+            y = y[:i + 1] + y[i + 2:]
             i = 1
-        elif i == 2 and isn(x[i - 1]):
-            x, y = x[i:], y[i:]
         else:
             i += 1
     COAST["x_mc"] = np.asarray(x, dtype=float)
     COAST["y_mc"] = np.asarray(y, dtype=float)
     COAST["n_mc"] = int(np.sum(np.isnan(COAST["x_mc"]))) + 1
-    COAST = get_transportpoints(COAST)
+    try:                      # (inside try/end in ShorelineS)
+        COAST = get_transportpoints(COAST)
+    except Exception:
+        pass
     return COAST

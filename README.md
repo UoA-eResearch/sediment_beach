@@ -38,7 +38,11 @@ The `.mat` and `.nc` files are stored with Git LFS. After cloning, run
 `git lfs pull`. Otherwise these files are small text pointer files and
 loading them fails.
 
-The ShorelineS model core (`ShorelineS_functions/ShorelineS.m` and the time
+The ShorelineS model is a git submodule in `ShorelineS/` (see
+[below](#shorelines-git-submodule)). Clone with `git clone --recurse-submodules`,
+or run `git submodule update --init` in an existing clone.
+
+The ShorelineS model core (`ShorelineS/functions/ShorelineS.m` and the time
 loop) also runs in GNU Octave 8 with the `netcdf` package. The benchmarks
 below were made that way. The project scripts need MATLAB, because Octave has
 no `readtable`, `projcrs`/`projfwd` or `scatteredInterpolant`.
@@ -52,13 +56,16 @@ no `readtable`, `projcrs`/`projfwd` or `scatteredInterpolant`.
 ```matlab
 % from the repository root, in MATLAB
 git lfs pull                  % (in a shell) fetch the data files once
+git submodule update --init   % (in a shell) fetch the ShorelineS model once
 create_nc                     % optional: rebuilds input_25_contour.nc + wave_data.mat
 hindcast_run                  % runs the model and calls project_output at the end
 plot_waves                    % optional: plots the wave time series along the contour
 ```
 
-`hindcast_run.m` adds `ShorelineS_functions/` to the path relative to its own
-location, so it can be run from any working directory.
+`hindcast_run.m` adds `ShorelineS/functions/` to the path relative to its own
+location, so it can be run from any working directory. ShorelineS writes its
+output to `fullfile(pwd, S.outputdir, S.outputfile)`, so `S.outputdir`
+(`file_out`) must be a folder relative to the working directory.
 
 ---
 
@@ -102,14 +109,27 @@ location, so it can be run from any working directory.
 
 | Folder | Content |
 |---|---|
-| [`results/`](results/README.md) | Output of the full 2000–2024 hindcast (Python port): `output.mat`, `project_output` results, per-transect trends, all benchmark timings (`.mat` files in Git LFS) |
+| [`results/`](results/README.md) | Output of the full 2000–2024 hindcast (Python port, made with the ShorelineS version before the [2025-09 update](#update-to-the-latest-shorelines-september-2025)): `output.mat`, `project_output` results, per-transect trends, all benchmark timings (`.mat` files in Git LFS) |
 | `docs/figures/` | Figures used in this README (`python/make_figures.py`) |
 | [`python/`](python/README.md) | Python port of the workflow and of the ShorelineS code path used here, including closed (cyclic) sections such as islands, with tests against Octave |
 | `benchmark/` | MATLAB/Octave timing harness and equivalence tests |
 
-### `ShorelineS_functions/`
+### `ShorelineS/` (git submodule)
 
-A vendored copy of the ShorelineS model (IHE Delft & Deltares, LGPL-2.1).
+The ShorelineS model (IHE Delft & Deltares, LGPL-2.1). The submodule points at
+the branch `speed-optimisations` of
+[UoA-eResearch/shorelines](https://github.com/UoA-eResearch/shorelines), a fork
+of [danoroelvink/shorelines](https://github.com/danoroelvink/shorelines). That
+branch is the latest upstream version (commit `f3ec863`, August 2026) plus the
+speed optimisations described under [Performance](#performance), which are
+offered upstream in
+[UoA-eResearch/shorelines#1](https://github.com/UoA-eResearch/shorelines/pull/1).
+Until 2026-11 this repository had a vendored copy of an older version in
+`ShorelineS_functions/`.
+
+To update to a newer upstream version: merge upstream into the fork's branch,
+then `git -C ShorelineS pull` and commit the new submodule commit here.
+
 `ShorelineS(S)` takes the parameter struct `S`, fills in the defaults
 (`initialize_defaultvalues.m` documents every parameter), and runs the time
 loop. Each step goes through four phases:
@@ -123,8 +143,10 @@ loop. Each step goes through four phases:
    (`transport_shadow_treat` → `find_shadows_mc`) and boundary conditions.
 3. **Coastline change** (`coastline_change`), plus overwash
    (`find_overwash_mc`), merging of sections, and NaN cleanup.
-4. **Output**: store to `output.mat` every `S.storageinterval` days
-   (`save_shorelines`), and plot every `S.plotinterval` steps (`plot_coast`).
+4. **Output**: store to `S.outputfile` (default `shorelines_output.mat`;
+   this project sets `output`) every `S.storageinterval` days or at the dates
+   `S.storagedate` (`save_shorelines`), and plot every `S.plotinterval` steps
+   (`plot_coast`).
 
 The run settings used in this project (see `hindcast_run.m`):
 
@@ -142,6 +164,75 @@ The run settings used in this project (see `hindcast_run.m`):
 | `d50`, `gamma` | defaults 2·10⁻⁴ m, 0.72 | `python/hindcast_run.py` sets `d50` = 10⁻⁴ m (and uses the default `gamma`) |
 | `storageinterval` | 30 days | output interval |
 | `plotinterval` | 240 steps (30 days) | plot/video interval |
+
+## Update to the latest ShorelineS (September 2025)
+
+In 2026-11 the model was updated from the older vendored copy to the
+latest upstream ShorelineS (`danoroelvink/shorelines` commit `f3ec863`, which
+contains the changes of September 2025). Both the MATLAB scripts (through the
+`ShorelineS/` submodule) and the Python port use it. The Python port follows
+the new code statement by statement and is checked against it in GNU Octave
+(24 model runs; see [python/README.md](python/README.md#verification-against-gnu-octave)).
+
+Changes that matter for this project:
+
+- **`qscal` now scales the transport linearly.** The old Kamphuis (`KAMP`)
+  and Mil-Homens (`MILH`) code multiplied by `qscal` twice, so `qscal = 0.5`
+  gave a quarter of the transport. Runs with `qscal ≠ 1` made before the
+  update are not comparable with new ones.
+- **Coastline ends.** The first and last point of a section move normal to
+  the outer segments of the previous time step's transport grid, instead of
+  the boundary angle of the first time step. The coastline angle at open ends
+  comes from the transport grid as well.
+- **Shadowing.** The shadow ray's breaker and surf zones are at most 50 % and
+  100 % (was 20 % and 80 %) of the distance to the nearest wave station.
+- **High-angle smoothing (`maxangle`, `get_smoothangles`).** New smoothing
+  weights, and shadowed points and the two outer points of open sections are
+  left out.
+- **Critical angle (`get_Sphimax`).** The parabola fit is per point, and the
+  angle is 45° where the fit fails (was NaN).
+- **`suppresshighangle = 1`.** Only angles above the critical angle on the
+  positive side are clipped, without the extra 1 % transport, and the upwind
+  correction is skipped.
+- **Van Rijn 2014 (`VR14`)** changed: no transport for waves from behind the
+  coast (|angle| > 90°), and no `abs`/`sign` on the velocity.
+- **New `S.tanbetasetup`** (default 1) replaces the fixed `2/tanbeta` of the
+  wave set-up term. That term is only non-zero with diffraction, which this
+  configuration does not use.
+- **Overwash** moves points along the transport-grid orientation, with
+  distance-based weights on the back-barrier side.
+- **Merging.** A section that crosses itself once is now also split into
+  two. The merging of crossing sections was rewritten. Crossings closer than
+  10⁻⁵ times the largest segment index count as one (`uniquetol`), so two
+  coastlines that only just touch merge a time step later.
+- **Time step.** With a fixed time step (`S.tc = 0`), a step is split into
+  sub-steps when the stable time step (Δs²·d / 4·max|Q|) is shorter. That only
+  happens with very large transport rates (e.g. `qscal = 2000`).
+- **Output.** The file is `S.outputfile` (default `shorelines_output.mat`).
+  `hindcast_run.m` and `python/hindcast_run.py` set `S.outputfile = 'output'`,
+  so they still write `output.mat`. `S.storagedate` sets output dates. The
+  fields of `O` changed:
+  - new: `time`, `h0`, `PHIcxy`, `HStdp`, `PHItdp`;
+  - removed: `n`, `x1`, `y1`, `n1`, `distx1`, `distQS1`, `dSds`, `HS`, `PHI`,
+    `dPHI`, `dPHIbr`, `hbr`.
+
+  `ploting_model_output.m` handles both versions. `project_output` only uses
+  `O.x` and `O.y`.
+- **`preserveorientation = 1`** now runs for coasts of several sections (it
+  stopped with an index error before).
+
+Known issues in ShorelineS (reproduced by the port):
+
+- When sub-steps overshoot the end time, the run has no output at the end.
+  `save_shorelines` compares `tnow + dt` with the end time, with `dt` in years
+  and `tnow` in days.
+- `get_coastline_orientation` interpolates the previous orientations onto a
+  changed grid inside a `try` block. It only works when the previous grid has
+  as many points as orientations, which holds for this configuration.
+
+IMPACT_PLACEHOLDER
+
+The [Findings](#findings) below were made with the old version.
 
 ## Findings
 
@@ -304,16 +395,16 @@ runs.
 
 ## How much of ShorelineS the Python port covers
 
-**49 of the 131 ShorelineS files (37 %) are ported**, which is 45 % of the
-9,060 code lines (comments and blank lines excluded):
+**50 of the 135 ShorelineS files (37 %) are ported**, which is 46 % of the
+10,122 code lines (comments and blank lines excluded):
 
-- 23 files fully;
-- 22 in part (the code paths of the supported options);
-- 4 folded into other Python code.
+- 24 files fully;
+- 23 in part (the code paths of the supported options);
+- 3 folded into other Python code.
 
 Leaving out plotting, input files and utilities, which a Python run does not
-need, that is 49 of 114 files (43 %). The other 65 files are processes this
-project does not use:
+need, that is 50 of 116 files (43 %). The other 66 files are processes this
+project does not use (and NetCDF output):
 
 - structures and groynes, diffraction;
 - dunes, nourishments, mud, tides, inlet channels;
@@ -328,12 +419,12 @@ ported and checked against Octave:
 - transport formulas `CERC`, `CERC2`, `CERC3`, `KAMP`, `MILH`, `VR14`;
 - all boundary conditions;
 - `smoothrefrac`, `relaxationlength`, `suppresshighangle`,
-  `sphimax = 'estimate'`;
-- a fixed `phif`, and a spatially varying `d`.
+  `sphimax = 'estimate'`, `preserveorientation`, `tanbetasetup`;
+- a fixed `phif`, and a spatially varying `d`;
+- the fixed time step with automatic sub-steps, and output at given dates
+  (`storagedate`).
 
 See [python/README.md](python/README.md#options-for-sensitivity-analyses).
-`preserveorientation` fails in ShorelineS itself for this two-beach
-coastline.
 
 ## Performance
 
@@ -394,6 +485,18 @@ Profile of the original code over 9 time steps (≈ 112 s in Octave):
 
 ### What was changed
 
+The timings above were measured on the older vendored ShorelineS. With the
+2025-09 update, the six ShorelineS changes (the first six rows below) were
+re-applied on top of upstream `f3ec863`, in the `speed-optimisations` branch
+of the [fork](https://github.com/UoA-eResearch/shorelines) that the
+`ShorelineS/` submodule uses
+([PR #1](https://github.com/UoA-eResearch/shorelines/pull/1), to be offered
+upstream). `get_intersections.m` keeps upstream's new handling of crossings
+(`uniquetol`, the disentangle mode and the closed-polygon case). Against plain
+upstream, 2-day runs (closed and periodic boundaries) give a bit-identical
+coastline, breaking-wave height and angle differ by ≤ 2·10⁻¹⁶, and the run
+takes 47 s instead of 175 s in Octave.
+
 All changes keep the model's behaviour. The equivalence tests in `benchmark/`
 compare each function against the original. A 2-day model run gives
 **identical coastline positions** (`O.x`, `O.y` and all geometry fields are
@@ -402,12 +505,12 @@ bit-for-bit equal). Transport differs only at floating-point round-off level
 
 | File | Change | Result |
 |---|---|---|
-| `ShorelineS_functions/wave_breakingheight.m` | The per-point secant iteration is vectorised over all points: points that have converged are masked out, and a vectorised `wave_shoalref_vec` does exactly the same branching as `wave_shoalref`. | ~140× faster for 5,000 points. Results equal to ≤ 4·10⁻¹⁵ (round-off). |
-| `ShorelineS_functions/get_intersections.m` | Implicit expansion replaces the ~26 full-size `repmat` copies. Only segments whose bounding box can reach the other polyline are evaluated (NaN-adjacent segments are always kept, so even the original's edge cases stay the same). The `ui`/`uj` loop is vectorised. | Same crossings, indices and coordinates on 3,000 random cases. The fractions `ui`/`uj` occasionally differ by 1 ulp (≤ 9·10⁻¹⁶). ~3× faster for the model's typical coastline-vs-short-line calls. |
-| `ShorelineS_functions/introduce_wave.m` | `length(unique(t))>1` becomes `any(t~=t(1))`. Each station is interpolated on the 2 time points around `tnow` (the result is the same for a strictly increasing time axis; otherwise it falls back to the full series). All stations are then interpolated in one `interp1` call per parameter. | Bit-identical output. |
-| `ShorelineS_functions/get_polydistance.m` | All normals are intersected with the coastline at once. Only (normal, segment) pairs whose bounding boxes overlap are evaluated, with the same crossing arithmetic. | Bit-identical on the stored model output. ≤ 10⁻¹³ m on random polylines. **131× faster.** This speeds up `project_output.m` (≈ 9,700 calls over the daily CoastSat series) and `save_shorelines`. |
-| `ShorelineS_functions/get_Sphimax.m` | The warning state is saved and restored around the 3×3 solves, instead of `warning off`/`warning on` inside the per-point loop. The blanket `warning on` switched on every warning for the rest of the run (in Octave that printed ~500,000 broadcasting notices per 6 simulated days). | Same results; no warning flood. |
-| `ShorelineS_functions/make_video.m` | Drops empty frames before `writeVideo`. With `plotinterval>1`, frames are stored at `V(it+1)`, which leaves gaps, and the `try` around `writeVideo` used to swallow the error, so no video was written. | Video works with `plotinterval>1`. |
+| `wave_breakingheight.m` | The per-point secant iteration is vectorised over all points: points that have converged are masked out, and a vectorised `wave_shoalref_vec` does exactly the same branching as `wave_shoalref`. | ~140× faster for 5,000 points. Results equal to ≤ 4·10⁻¹⁵ (round-off). |
+| `get_intersections.m` | Implicit expansion replaces the ~26 full-size `repmat` copies. Only segments whose bounding box can reach the other polyline are evaluated (NaN-adjacent segments are always kept, so even the original's edge cases stay the same). The `ui`/`uj` loop is vectorised. | Same crossings, indices and coordinates on 3,000 random cases. The fractions `ui`/`uj` occasionally differ by 1 ulp (≤ 9·10⁻¹⁶). ~3× faster for the model's typical coastline-vs-short-line calls. |
+| `introduce_wave.m` | `length(unique(t))>1` becomes `any(t~=t(1))`. Each station is interpolated on the 2 time points around `tnow` (the result is the same for a strictly increasing time axis; otherwise it falls back to the full series). All stations are then interpolated in one `interp1` call per parameter. | Bit-identical output. |
+| `get_polydistance.m` | All normals are intersected with the coastline at once. Only (normal, segment) pairs whose bounding boxes overlap are evaluated, with the same crossing arithmetic. | Bit-identical on the stored model output. ≤ 10⁻¹³ m on random polylines. **131× faster.** This speeds up `project_output.m` (≈ 9,700 calls over the daily CoastSat series) and `save_shorelines`. |
+| `get_Sphimax.m` | The warning state is saved and restored around the 3×3 solves, instead of `warning off`/`warning on` inside the per-point loop. The blanket `warning on` switched on every warning for the rest of the run (in Octave that printed ~500,000 broadcasting notices per 6 simulated days). | Same results; no warning flood. |
+| `make_video.m` | Drops empty frames before `writeVideo`. With `plotinterval>1`, frames are stored at `V(it+1)`, which leaves gaps, and the `try` around `writeVideo` used to swallow the error, so no video was written. | Video works with `plotinterval>1`. |
 | `hindcast_run.m` | `S.plotinterval = 240` (one frame per 30 days instead of per 3-hour step). The hard-coded `C:\Users\...` `addpath` becomes a path relative to the script. | Avoids ~73,000 figure redraws, and a video frame array that would need hundreds of GB of memory for the full 25-year run. **This changes the animation**: one frame per 30 days. Set `S.plotinterval=1` for the original behaviour. |
 | `create_nc.m` | Interpolation is linear in the node values, so a 94 × 48 weight matrix is built once and each field becomes one matrix product, instead of a `scatteredInterpolant` evaluation for every hour (3 × ~74,000 evaluations) into arrays that grew inside the loop. Hours with missing node values fall back to the original per-hour interpolation. | Same values (≤ 10⁻¹⁵, checked with an equivalent SciPy implementation). Removes the ~220,000 interpolant evaluations and the quadratic array growth. |
 | `initial_grid.m` | Only the *Intersect points* columns that are actually used (the transects removed from the PCA) are parsed cell by cell and projected, instead of every cell in the sheet. | For beaches `[2 3]`, parses 159 of 609 columns (26 %). Same output. |
@@ -437,8 +540,9 @@ Octave does not have.
 (73,041 time steps) took **43.9 minutes** (36 ms per step), against an
 estimated ≈ 30 hours in Octave with the optimised code.
 
-**Python vs. the real MATLAB run.** `30_sept_int_w/output.mat` holds a run of
-this configuration made in MATLAB (output up to 2004-03-10). The Python run
+**Python vs. the real MATLAB run** (before the 2025-09 update of ShorelineS).
+`30_sept_int_w/output.mat` holds a run of this configuration made in MATLAB
+with the older ShorelineS (output up to 2004-03-10). The Python run
 uses the same grid at every stored time, and the coastline positions differ
 by at most 1·10⁻⁷ m (median 9·10⁻¹⁰ m on cross-shore distance) after 4 years.
 That is floating-point round-off, and it does not grow over time.
@@ -462,15 +566,15 @@ measure it).
 ### Reproducing
 
 ```matlab
-% baseline = the commit before the optimisation
-% (shell)  git worktree add ../baseline aa45896
+% baseline = plain upstream ShorelineS, without the speed optimisations
+% (shell)  git -C ShorelineS worktree add ../upstream f3ec863
 cd benchmark
-bench_run('../baseline/ShorelineS_functions', 2, 0, 'out_orig');   % original
-bench_run('../ShorelineS_functions',          2, 0, 'out_new');    % optimised
+bench_run('../upstream/functions',   2, 0, 'out_orig');   % upstream
+bench_run('../ShorelineS/functions', 2, 0, 'out_new');    % optimised
 compare_outputs('out_orig/output.mat', 'out_new/output.mat')
-test_wave_breakingheight('../baseline/ShorelineS_functions')
-test_get_intersections('../baseline/ShorelineS_functions')
-test_get_polydistance('../baseline/ShorelineS_functions')
+test_wave_breakingheight('../upstream/functions')
+test_get_intersections('../upstream/functions')
+test_get_polydistance('../upstream/functions')
 ```
 
 In Octave: `pkg load netcdf`, and run headless with

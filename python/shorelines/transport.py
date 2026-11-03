@@ -17,15 +17,31 @@ def transport(TRANSP, WAVE, field="QS"):
     `field` is 'QSmax' when called for the critical angle (no suppresshighangle factor)."""
     T = TRANSP
     trform = T["trform"].upper()
+    trform = next((f for f in ("CERC2", "CERC3", "KAMP", "MILH", "VR14") if f in trform), trform)
     if trform not in TRANSPORT_FORMULAS:
         raise NotImplementedError(f"transport formula {T['trform']} (ported: {', '.join(TRANSPORT_FORMULAS)})")
     HStdp = np.asarray(WAVE["HStdp"], dtype=float)
     dHS = np.zeros(HStdp.size)                       # only non-zero with diffraction (not ported)
+    WAVE = dict(WAVE)                                # (MATLAB passes WAVE by value)
+    if field == "QS" and T["suppresshighangle"] == 1:
+        # transport at the critical angle where the angle exceeds it (positive side only, as upstream)
+        with np.errstate(invalid="ignore"):
+            idx = np.flatnonzero(WAVE["dPHItdp"] > WAVE["dPHIcrit"])
+        dHS[idx] = dHS[idx] * 0
+        dPHItdp = np.clip(np.asarray(WAVE["dPHItdp"], dtype=float), -90, 90)
+        HStdp = HStdp.copy()
+        HStdp[np.abs(dPHItdp) > 90] = 0               # (no effect after the clipping, as upstream)
+        WAVE["HStdp"] = HStdp
+        WAVE["dPHItdp"] = np.asarray(WAVE["dPHItdp"], dtype=float).copy()
+        WAVE["dPHItdp"][idx] = WAVE["dPHIcrit"][idx]
+        WAVE["dPHIbr"] = np.asarray(WAVE["dPHIbr"], dtype=float).copy()
+        WAVE["dPHIbr"][idx] = WAVE["dPHIcritbr"][idx]
+    tbs = T["tanbetasetup"]
     # (constants multiplied in MATLAB's left-to-right order, for identical rounding)
     with np.errstate(invalid="ignore", divide="ignore"):
         if trform in ("CERC", "CERC1"):
             dPHItdp = WAVE["dPHItdp"]
-            QS = T["qscal"] * T["b"] * m_pow(HStdp, 2.5) * (sind(2 * dPHItdp) - 2 * cosd(dPHItdp) * dHS)
+            QS = T["qscal"] * T["b"] * m_pow(HStdp, 2.5) * (sind(2 * dPHItdp) - (2 / tbs) * cosd(dPHItdp) * dHS)
             QS[np.abs(dPHItdp) > 90] = 0
         elif trform == "CERC2":
             dPHItdp = WAVE["dPHItdp"]
@@ -34,46 +50,43 @@ def transport(TRANSP, WAVE, field="QS"):
                                                         * (1 - T["porosity"])))
             b2 = b1 * m_pow(m_pow(T["gamma"] * T["g"], 0.5) / (2 * np.pi), 0.2)
             QS = (T["qscal"] * 365 * 24 * 60 * 60 * b2 * m_pow(HStdp, 12 / 5) * m_pow(WAVE["TP"], 1 / 5)
-                  * (m_pow(cosd(dPHItdp), 6 / 5) * sind(dPHItdp) - 2 * cosd(dPHItdp) * dHS))
+                  * (m_pow(cosd(dPHItdp), 6 / 5) * sind(dPHItdp) - (2 / tbs) * cosd(dPHItdp) * dHS))
             QS[np.abs(dPHItdp) > 90] = 0
         elif trform == "CERC3":
             HSbr, dPHIbr = WAVE["HSbr"], WAVE["dPHIbr"]
             k = 0.35
             b3 = 1 / 16 * k * T["rhow"] / ((T["rhos"] - T["rhow"]) * (1 - T["porosity"]))
             QS = (T["qscal"] * 365 * 24 * 60 * 60 * b3 * m_pow(T["g"], 0.5) * m_pow(T["gamma"], -0.52) * m_pow(HSbr, 2.5)
-                  * (sind(2 * dPHIbr) - 2 * cosd(dPHIbr) * dHS))
+                  * (sind(2 * dPHIbr) - (2 / tbs) * cosd(dPHIbr) * dHS))
             QS[np.abs(dPHIbr) > 90] = 0
         elif trform == "KAMP":
             HSbr, dPHIbr, TP = WAVE["HSbr"], WAVE["dPHIbr"], WAVE["TP"]
             QSkampmass = (T["qscal"] * 2.33 * T["rhos"] / (T["rhos"] - T["rhow"]) * m_pow(TP, 1.5)
                           * m_pow(T["tanbeta"], 0.75) * m_pow(T["d50"], -0.25) * m_pow(HSbr, 2)
                           * (m_pow(np.abs(sind(2 * dPHIbr)), 0.6) * np.sign(dPHIbr)
-                             - (2 / T["tanbeta"]) * cosd(dPHIbr) * dHS))
-            QS = T["qscal"] * 365 * 24 * 60 * 60 * (QSkampmass / T["rhos"]) / (1.0 - T["porosity"])
+                             - (2 / tbs) * cosd(dPHIbr) * dHS))
+            QS = 365 * 24 * 60 * 60 * (QSkampmass / T["rhos"]) / (1.0 - T["porosity"])
             QS[np.abs(dPHIbr) > 90] = 0
         elif trform == "MILH":
             HSbr, dPHIbr, TP = WAVE["HSbr"], WAVE["dPHIbr"], WAVE["TP"]
             QSmilhmass = (T["qscal"] * 0.15 * T["rhos"] / (T["rhos"] - T["rhow"]) * m_pow(TP, 0.89)
                           * m_pow(T["tanbeta"], 0.86) * m_pow(T["d50"], -0.69) * m_pow(HSbr, 2.75)
                           * (m_pow(np.abs(sind(2 * dPHIbr)), 0.5) * np.sign(dPHIbr)
-                             - (2 / T["tanbeta"]) * cosd(dPHIbr) * dHS))
-            QS = T["qscal"] * 365 * 24 * 60 * 60 * (QSmilhmass / T["rhos"]) / (1.0 - T["porosity"])
+                             - (2 / tbs) * cosd(dPHIbr) * dHS))
+            QS = 365 * 24 * 60 * 60 * (QSmilhmass / T["rhos"]) / (1.0 - T["porosity"])
             QS[np.abs(dPHIbr) > 90] = 0
         else:                                        # VR14
             HSbr, dPHIbr = WAVE["HSbr"], WAVE["dPHIbr"]
             vtide = 0
             kswell = 0.015 * T["pswell"] + (1 - 0.01 * T["pswell"])
-            vwave = 0.3 * sind(2 * dPHIbr) * m_pow(T["g"] * HSbr, 0.5)
+            vwave = 0.3 * m_pow(T["g"] * HSbr, 0.5) * (sind(2 * dPHIbr) - (2 / tbs) * cosd(dPHIbr) * dHS)
+            vwave[np.abs(dPHIbr) > 90] = 0
             vtotal = vwave + vtide
             QSvr14mass = (T["qscal"] * 0.0006 * kswell * T["rhos"] * m_pow(T["tanbeta"], 0.4)
-                          * m_pow(T["d50"], -0.6) * m_pow(HSbr, 2.6) * np.abs(vtotal) * np.sign(dPHIbr))
+                          * m_pow(T["d50"], -0.6) * m_pow(HSbr, 2.6) * vtotal)
             QS = 365 * 24 * 60 * 60 * (QSvr14mass / T["rhos"]) / (1.0 - T["porosity"])
             QS[np.abs(dPHIbr) > 90] = 0
-    QS = np.asarray(QS, dtype=float)
-    if field == "QS" and T["suppresshighangle"] == 1:
-        idx = WAVE["dPHItdp"] == WAVE["dPHIcrit"]
-        QS[idx] = 1.01 * QS[idx]
-    return QS
+    return np.asarray(QS, dtype=float)
 
 
 def transport_shadow_treat(COAST, WAVE, TRANSP, find_shadows_mc):
@@ -113,7 +126,10 @@ def transport_shadow_treat(COAST, WAVE, TRANSP, find_shadows_mc):
 
 
 def get_smoothangles(COAST, TRANSP):
-    """Smooth the transport at sharp coastline angles."""
+    """Smooth the transport at sharp coastline angles (convex and concave corners of
+    more than maxangle/2): the transport is carried over downdrift of the corner,
+    in two sequential sweeps (right to left for negative transport, left to right
+    for positive transport) that are blended with the weight of each corner."""
     COAST["dPHIc"] = mmod(np.diff(COAST["PHIc"]) + 180, 360) - 180
     if COAST["clockwise"]:
         dPHIc = COAST["dPHIc"]
@@ -123,22 +139,37 @@ def get_smoothangles(COAST, TRANSP):
         with np.errstate(invalid="ignore"):
             idc1 = np.flatnonzero((dPHIc > maxangle * 0.5) & ok)
             idc2 = np.flatnonzero((dPHIc < -maxangle * 0.5) & ok)
-        idc = np.union1d(idc1, idc2)
-        idc = np.setdiff1d(idc, np.flatnonzero(TRANSP["shadow"]))
+            idc = np.union1d(idc1, idc2)
+            idc = np.setdiff1d(idc, np.flatnonzero(np.asarray(TRANSP["shadow"], dtype=bool) & (np.abs(dPHIc) < 90)))
         if not COAST["cyclic"]:
-            idc = np.setdiff1d(idc, [0, dPHIc.size - 1])
-        QS0 = TRANSP["QS"]
-        QS1 = QS0.copy()
-        QS2 = QS0.copy()
+            m = dPHIc.size
+            idc = np.setdiff1d(idc, [0, 1, m - 2, m - 1])
         if idc.size:
-            factor = np.fmin(np.fmax(np.abs(2 * np.abs(dPHIc[idc]) - maxangle) / maxangle, 0), 1)
-            ids = dPHIc[idc] * (QS0[idc] - QS0[idc + 1]) < 0
-            factor[ids] = 0
-            QSfac1 = ((QS0[idc] + QS0[idc + 1]) / 2 <= 0).astype(float)
-            QS1[idc] = (1 - factor * QSfac1) * QS0[idc] + factor * QSfac1 * QS0[idc + 1]
-            QSfac2 = ((QS0[idc] + QS0[idc + 1]) / 2 >= 0).astype(float)
-            QS2[idc + 1] = (1 - factor * QSfac2) * QS0[idc + 1] + factor * QSfac2 * QS0[idc]
-            TRANSP["QS"] = (QS1 + QS2) / 2
+            nq = TRANSP["QS"].size
+            QS0 = TRANSP["QS"].copy()
+            QS1 = QS0.copy()
+            QS2 = QS0.copy()
+            with np.errstate(invalid="ignore"):
+                factor = np.fmin(np.fmax(np.abs(2 * np.abs(dPHIc[idc]) - maxangle / 2) / (maxangle / 2), 0), 1)
+                factor[dPHIc[idc] * (QS0[idc] - QS0[idc + 1]) < 0] = 0
+                QSfac1 = ((QS0[idc] + QS0[idc + 1]) / 2 <= 0).astype(float)
+                QSfac2 = ((QS0[idc] + QS0[idc + 1]) / 2 >= 0).astype(float)
+            fac = np.fmax(QSfac1 + QSfac2, 1)
+            QSfac1 = QSfac1 / fac
+            QSfac2 = QSfac2 / fac
+            for nn in range(idc.size - 1, -1, -1):          # sweep from right to left
+                k = idc[nn]
+                QS1[k] = ((1 - factor[nn] * QSfac1[nn]) * QS0[k]
+                          + factor[nn] * QSfac1[nn] * np.fmin(QS1[k + 1], QS0[k]))
+            for nn in range(idc.size):                      # sweep from left to right
+                k = idc[nn]
+                QS2[k + 1] = ((1 - factor[nn] * QSfac2[nn]) * QS0[k + 1]
+                              + factor[nn] * QSfac2[nn] * np.fmax(QS2[k], QS0[k + 1]))
+            ids = np.zeros(nq)
+            ids[idc] = -factor * QSfac1
+            ids[idc + 1] = ids[idc + 1] + factor * QSfac2
+            ids = (ids + 1) / 2
+            TRANSP["QS"] = QS1 * (1 - ids) + QS2 * ids
     return COAST, TRANSP
 
 
@@ -171,7 +202,7 @@ def get_upwindcorrection(COAST, WAVE, TRANSP):
     shadowS_h = TRANSP["shadowS_h"]
     idrev = TRANSP["idrev"]
     twopoints = TRANSP["twopoints"]
-    if COAST["clockwise"] == 1:
+    if COAST["clockwise"] == 1 and TRANSP["suppresshighangle"] != 1:
         dPHIcr1 = mmod(dPHItdp - dPHIcrit + 180, 360) - 180
         dPHIcr2 = mmod(dPHItdp + dPHIcrit + 180, 360) - 180
         for cw in (1, -1):
