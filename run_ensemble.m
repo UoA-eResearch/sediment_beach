@@ -7,7 +7,8 @@ function run_ensemble(params, S0, out_root)
 %                 params = struct('qscal', {0.5, 1, 2});
 %                 params = struct('qscal', {0.5, 1}, 'wvcfile', {'sinthe_waves.nc', 'input_25_contour.nc'});
 %   S0        base settings (as in hindcast_run.m, with S0.xmc / S0.ymc set)
-%   out_root  folder for the runs; run k writes to out_root/run_00k
+%   out_root  folder for the runs; run k writes to out_root/run_00k (relative to
+%             the working directory: ShorelineS saves to fullfile(pwd, S.outputdir, ...))
 %
 % Each run writes output.mat and params.mat to its own folder. With the
 % Parallel Computing Toolbox, parfor runs the parameter sets on the workers of
@@ -25,8 +26,14 @@ addpath(fullfile(fileparts(mfilename('fullpath')), 'ShorelineS', 'functions'));
 
 % hidden figures (Octave's fltk toolkit cannot print a hidden figure, so it keeps them visible)
 S0.plotvisible = double(exist('OCTAVE_VERSION','builtin') > 0);
+if exist('OCTAVE_VERSION','builtin')
+    S0.fastplot = 0;     % (the default getframe/imwrite plotter fails in headless Octave)
+end
 S0.video = 0;
 S0.plotinterval = 1e9;   % no plotting during the run
+if ~isfield(S0, 'outputfile')
+    S0.outputfile = 'output';   % run_00k/output.mat (ShorelineS default: shorelines_output.mat)
+end
 names = fieldnames(params);
 n = numel(params);
 status = cell(n,1);

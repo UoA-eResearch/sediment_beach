@@ -27,7 +27,9 @@ python -m pytest tests                         # tests against GNU Octave result
 ```
 
 The reference data in `tests/data/` (`.mat`) are stored with Git LFS, like the
-other data files.
+other data files. The Python code does not need the ShorelineS submodule;
+`port_status.py` and regenerating the test references do
+(`git submodule update --init`).
 
 ## Running several parameter sets in parallel
 

@@ -271,6 +271,8 @@ def test_model_matches_octave(tmp_path, case):
         assert O["timenum"].size == 4                                   # 3 dates + the last step
 
 
+@pytest.mark.skipif(not os.path.exists(os.path.join(REPO, "ShorelineS", "functions", "ShorelineS.m")),
+                    reason="ShorelineS submodule not checked out (git submodule update --init)")
 def test_port_status_lists_every_shorelines_function():
     """port_status.STATUS (docs/shorelines_port_status.md) covers every .m file, and the
     Python functions it names exist."""
