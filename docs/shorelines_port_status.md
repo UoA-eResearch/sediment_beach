@@ -65,7 +65,7 @@ Ported (fully, in part or folded in): **50 of 135 files (37 %)**, 4616 of 10133 
 | `prepare_transport` | 102 | `model.ShorelineS.__init__` | no sediment limitation |
 | `prepare_waveconditions` | 47 | `model.ShorelineS.__init__` | wave time series at stations |
 | `save_shorelines` | 281 | `model.ShorelineS._store`, `model.ShorelineS.save` | no output grids or profiles |
-| `transport` | 120 | `transport.transport` | CERC, CERC2, CERC3, KAMP, MILH, VR14; not RAY or TIDEPROF |
+| `transport` | 120 | `transport.transport` | CERC, CERC2, CERC3, KAMP, MILH, VR14, with the wave set-up term (S.diffraction, S.tanbetasetup); not RAY or TIDEPROF |
 | `transport_boundary_condition` | 49 | `transport.transport_boundary_condition` | no groyne boundaries |
 | `transport_shadow_treat` | 111 | `transport.transport_shadow_treat` | no shadow of structures |
 | `wave_angles` | 59 | `waves.wave_angles` | all transport formulas except RAY |
@@ -170,6 +170,6 @@ Ported (fully, in part or folded in): **50 of 135 files (37 %)**, 4616 of 10133 
 | `update_props` | 20 |  | dune/mud properties along the coast |
 | `update_shoreline` | 74 |  | coastline from a bathymetry grid |
 | `wave_cur_1D` | 35 |  | TIDEPROF transport |
-| `wave_diffraction` | 587 |  | diffraction |
+| `wave_diffraction` | 587 |  | diffraction at structures (without structures it does nothing; S.diffraction = 1 then only switches on the wave set-up term in transport) |
 | `wave_diffraction_coeff` | 31 |  | diffraction |
 | `wave_transmission` | 34 |  | transmission over breakwaters |

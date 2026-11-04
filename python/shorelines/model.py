@@ -1,7 +1,8 @@
 """ShorelineS time loop (port of ShorelineS.m) for the configuration used in
 this project: one or more open coastline sections, wave time series at
 stations along a depth contour, Kamphuis transport, fixed time step, no
-structures, dunes, mud, nourishments or diffraction.
+structures, dunes, mud or nourishments; S.diffraction = 1 only switches on the
+wave-height gradient (set-up) term of the transport, as in ShorelineS without structures.
 
 Options outside that scope raise ``NotImplementedError`` instead of being
 silently ignored."""
@@ -57,7 +58,7 @@ def _check_supported(S):
     def on(v):
         return v not in (None, "", 0, False) and not (isinstance(v, (list, np.ndarray)) and np.size(v) == 0)
     for key in ("xhard", "ldbstructures", "xrevet", "ldbrevetments", "xperm", "perm", "dune", "mud",
-                "nourish", "fnourish", "diffraction", "channel", "tideinteraction", "waveinteraction",
+                "nourish", "fnourish", "channel", "tideinteraction", "waveinteraction",
                 "xsedlim", "ldbsedlim", "ccslr", "cchs", "ccdir", "ldbcoastline", "transmission",
                 "xyout", "xyprofiles", "netcdf"):
         if on(S.get(key)):
@@ -225,6 +226,7 @@ class ShorelineS:
         self.TRANSP = dict(trform=S["trform"], qscal=S["qscal"], b=S["b"], pswell=S["pswell"],
                            d50=S["d50"], porosity=S["porosity"],
                            tanbeta=S["tanbeta"], tanbetasetup=S["tanbetasetup"],
+                           diffraction=S["diffraction"],
                            rhos=S["rhos"], rhow=S["rhow"], g=S["g"],
                            gamma=S["gamma"], twopoints=S["twopoints"],
                            suppresshighangle=S["suppresshighangle"],
@@ -427,7 +429,7 @@ class ShorelineS:
             wave_breakingheight(W, T)
             W["PHIbr"] = mmod(C["PHIc"] - W["dPHIbr"], 360)
             wave_angles(C, W, T)
-            T["QS"] = transport(T, W)
+            T["QS"] = transport(T, W, xq=C["xq"], yq=C["yq"])
             transport_shadow_treat(C, W, T, find_shadows_mc)
             T["idrev"] = np.zeros(T["QS"].size)
             get_smoothangles(C, T)

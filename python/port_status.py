@@ -78,7 +78,8 @@ STATUS = {
     "get_disper": ("full", "mfuncs.get_disper", ""),
     # --- transport
     "transport": ("partial", "transport.transport",
-                  "CERC, CERC2, CERC3, KAMP, MILH, VR14; not RAY or TIDEPROF"),
+                  "CERC, CERC2, CERC3, KAMP, MILH, VR14, with the wave set-up term (S.diffraction, "
+                  "S.tanbetasetup); not RAY or TIDEPROF"),
     "transport_shadow_treat": ("partial", "transport.transport_shadow_treat", "no shadow of structures"),
     "get_smoothangles": ("full", "transport.get_smoothangles", ""),
     "get_upwindcorrection": ("full", "transport.get_upwindcorrection", ""),
@@ -114,7 +115,8 @@ STATUS = {
     "transport_revetment": ("no", "", "revetments"),
     "introduce_perm_structures": ("no", "", "permeable structures"),
     "wave_transmission": ("no", "", "transmission over breakwaters"),
-    "wave_diffraction": ("no", "", "diffraction"),
+    "wave_diffraction": ("no", "", "diffraction at structures (without structures it does nothing; "
+                         "S.diffraction = 1 then only switches on the wave set-up term in transport)"),
     "wave_diffraction_coeff": ("no", "", "diffraction"),
     # --- not ported: other processes
     "prepare_dunes": ("no", "", "dunes"),

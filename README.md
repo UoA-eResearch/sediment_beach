@@ -175,7 +175,7 @@ latest upstream ShorelineS (`danoroelvink/shorelines` commit `f3ec863`, which
 contains the changes of September 2025). Both the MATLAB scripts (through the
 `ShorelineS/` submodule) and the Python port use it. The Python port follows
 the new code statement by statement and is checked against it in GNU Octave
-(25 model runs; see [python/README.md](python/README.md#verification-against-gnu-octave)).
+(28 model runs; see [python/README.md](python/README.md#verification-against-gnu-octave)).
 
 Changes that matter for this project:
 
@@ -200,8 +200,16 @@ Changes that matter for this project:
 - **Van Rijn 2014 (`VR14`)** changed: no transport for waves from behind the
   coast (|angle| > 90°), and no `abs`/`sign` on the velocity.
 - **New `S.tanbetasetup`** (default 1) replaces the fixed `2/tanbeta` of the
-  wave set-up term. That term is only non-zero with diffraction, which this
-  configuration does not use.
+  wave set-up term, `-(2/tanbetasetup)·cos(angle)·dHs/ds`: transport driven by
+  the alongshore gradient of the wave height. ShorelineS computes that
+  gradient only with `S.diffraction = 1`. On a coast without structures,
+  such as this one, ShorelineS computes no diffraction itself, so
+  `S.diffraction = 1` simply switches on the set-up term. The Python port
+  supports this. On this coast the term is small: the wave heights
+  interpolated from the stations change by ~5 mm per km alongshore (median),
+  so over one year (1999-08 to 2000-08) it moves the coastline by at most
+  0.05 m (`tanbetasetup = 1`), 0.2 m (0.3) or 0.5 m (0.1). It matters where
+  the wave height changes quickly along the coast, e.g. behind structures.
 - **Overwash** moves points along the transport-grid orientation, with
   distance-based weights on the back-barrier side.
 - **Merging.** A section that crosses itself once is now also split into
@@ -450,7 +458,8 @@ ported and checked against Octave:
 - transport formulas `CERC`, `CERC2`, `CERC3`, `KAMP`, `MILH`, `VR14`;
 - all boundary conditions;
 - `smoothrefrac`, `relaxationlength`, `suppresshighangle`,
-  `sphimax = 'estimate'`, `preserveorientation`, `tanbetasetup`;
+  `sphimax = 'estimate'`, `preserveorientation`;
+- the wave set-up term (`diffraction = 1` with `tanbetasetup`);
 - a fixed `phif`, and a spatially varying `d`;
 - the fixed time step with automatic sub-steps, and output at given dates
   (`storagedate`).

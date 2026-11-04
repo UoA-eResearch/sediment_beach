@@ -99,7 +99,8 @@ qscal,d,boundaryconditionstart,boundaryconditionend,wave_file
 | `gamma` | 0.72 | - | breaking coefficient Hs/h |
 | `porosity` | 0.4 | - | porosity of the sediment |
 | `tanbeta` | 0.03 | - | mean bed slope |
-| `tanbetasetup` | 1 | - | factor of the wave set-up (alongshore wave-height gradient) term; only active with diffraction, which this configuration does not use |
+| `diffraction` | 0 | 0/1 | 1 switches on the wave set-up term of the transport (driven by the alongshore wave-height gradient); without structures ShorelineS computes no diffraction itself |
+| `tanbetasetup` | 1 | - | slope scaling the wave set-up term: -(2/tanbetasetup)*cos(angle)*dHs/ds; smaller values give a larger effect (needs diffraction = 1) |
 | `rhos` | 2650 | kg/m3 | density of sand |
 | `rhow` | 1025 | kg/m3 | density of water |
 | `g` | 9.81 | m/s2 | gravitational acceleration |
@@ -175,6 +176,8 @@ lists every function with its status and where it is in the Python code
 - shadowing by the coastline itself, smoothing at sharp angles, upwind
   correction for high-angle waves, `suppresshighangle`, `relaxationlength`;
 - spatially varying active height `d` and a fixed foreshore orientation `phif`;
+- the wave set-up term driven by the alongshore wave-height gradient
+  (`diffraction = 1`, scaled by `tanbetasetup`);
 - all ShorelineS boundary conditions of open sections: `closed` (or
   `{'Closed', Q}`, a fixed transport), `periodic`, `neumann`, `fixed` (the same
   as `neumann` in ShorelineS), `angleconstant`/`gradient` (or
@@ -223,7 +226,7 @@ y_mc = np.r_[y_beach, np.nan, y_island]
 
 Anything else raises `NotImplementedError` (before the run starts) rather
 than being ignored: structures/groynes, revetments, dunes, mud, nourishments,
-diffraction, tides, the `RAY` and `TIDEPROF` transport, wave climates and wave
+diffraction at structures, tides, the `RAY` and `TIDEPROF` transport, wave climates and wave
 fields, climate change, the adaptive time step (`S.tc ≠ 0`), output grids,
 NetCDF output.
 
@@ -245,7 +248,7 @@ ShorelineS in GNU Octave over 2 days (`tests/test_shorelines.py`):
 | `sphimax` | `estimate` | bit-identical with `SHORELINES_EXACT_LIBM=1`; ≤ 1e-9 m otherwise |
 | `suppresshighangle` | 0/1 | ≤ 2e-6 m after 2 days (see below) |
 | `preserveorientation` | 0/1 | bit-identical |
-| `tanbetasetup` | number | bit-identical (only active with diffraction, so no effect here) |
+| `diffraction` + `tanbetasetup` | `diffraction = 1` switches on the wave set-up term `-(2/tanbetasetup)·cos(angle)·dHs/ds` (without structures ShorelineS computes no diffraction itself); `tanbetasetup` a number (smaller: larger effect) | bit-identical (KAMP with `tanbetasetup` 1 and 0.1, CERC3 with 0.3); `tanbetasetup` alone has no effect |
 | `storagedate` | list of dates `'yyyy-mm-dd HH:MM:SS'` | bit-identical |
 | `interpolationmethod` | `alongshoremapping`, `weighted_distance` | |
 
@@ -280,7 +283,7 @@ are reproduced in `shorelines/mfuncs.py`.
 
 The reference is ShorelineS from the `ShorelineS/` submodule run in GNU
 Octave 8.4 (upstream `f3ec863` with the speed optimisations and the fix that
-stores the end of every run; see the [main README](../README.md#shorelines-git-submodule)). `tests/reference_cases.py` defines 25 model runs; for each,
+stores the end of every run; see the [main README](../README.md#shorelines-git-submodule)). `tests/reference_cases.py` defines 28 model runs; for each,
 `tests/test_shorelines.py::test_model_matches_octave` compares the stored
 output with Octave's. The coastline coordinates and the time stepping are
 **bit-identical** to Octave's at every stored time, except in three cases:
@@ -298,7 +301,7 @@ magnifies rounding differences to ~1e-10 relative.
 | `cyclic_island_6day` | two beaches plus a thin closed barrier island: closed sections and overwash (6 days, daily output) |
 | `synthetic_waves_closed_2day` | the current `hindcast_run` settings: closed boundaries, synthetic waves, `d50 = 1e-4`, `gamma = 0.5` |
 | `bc_A` … `bc_E` | `smoothrefrac` 0.5 and 1; `Angleconstant` and `Fixed` at both ends; `{'Closed', 5000}` with `{'Gradient', 200}` and `smoothrefrac` 0.3 |
-| `F01` … `F13` | the options for sensitivity analyses: `trform` `CERC`, `CERC2`, `CERC3`, `MILH`, `VR14`; `suppresshighangle`; `relaxationlength`; `phif`; `tanbetasetup`; `sphimax = 'estimate'`; a combination; `d` as `[x y d]`; `preserveorientation` |
+| `F01` … `F16` | the options for sensitivity analyses: `trform` `CERC`, `CERC2`, `CERC3`, `MILH`, `VR14`; `suppresshighangle`; `relaxationlength`; `phif`; `tanbetasetup`; `sphimax = 'estimate'`; a combination; `d` as `[x y d]`; `preserveorientation`; the wave set-up term (`diffraction = 1`) with `tanbetasetup` 1 and 0.1, and with CERC3 |
 | `T01` | sub-steps: `qscal = 2000` makes the stable time step 4 minutes, so each 3-hour step is split (363 steps in 1 day) |
 | `T02` | output at given dates (`storagedate`) |
 | `T03` | a time step (4.4 h) that does not fit the simulation period: the end of the run is stored |

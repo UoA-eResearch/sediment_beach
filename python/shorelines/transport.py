@@ -3,25 +3,45 @@
 get_upwindcorrection.m and transport_boundary_condition.m."""
 import numpy as np
 
-from .mfuncs import cosd, m_pow, mmod, sind
+from .mfuncs import cosd, m_hypot, m_pow, mmod, sind
 
 
 TRANSPORT_FORMULAS = ("CERC", "CERC1", "CERC2", "CERC3", "KAMP", "MILH", "VR14")
 
 
-def transport(TRANSP, WAVE, field="QS"):
+def transport(TRANSP, WAVE, field="QS", xq=None, yq=None):
     """Bulk longshore transport [m3/yr] at the transport points (transport.m):
     CERC/CERC1 (simple CERC with S.b), CERC2 (CERC with implicit refraction),
     CERC3 (CERC with breaking waves, Vitousek & Barnard 2015), KAMP (Kamphuis
     1991), MILH (Mil-Homens et al. 2013) or VR14 (Van Rijn 2014).
-    `field` is 'QSmax' when called for the critical angle (no suppresshighangle factor)."""
+    `field` is 'QSmax' when called for the critical angle (no suppresshighangle factor).
+
+    With S.diffraction = 1 the alongshore gradient of the wave height, dHS, adds a
+    wave set-up driven component -(2/tanbetasetup)*cos(angle)*dHS (xq, yq: transport
+    points). The port has no structures, so ShorelineS computes no diffraction
+    itself (STRUC.diffraction = 0) and the switch only turns on this term."""
     T = TRANSP
     trform = T["trform"].upper()
     trform = next((f for f in ("CERC2", "CERC3", "KAMP", "MILH", "VR14") if f in trform), trform)
     if trform not in TRANSPORT_FORMULAS:
         raise NotImplementedError(f"transport formula {T['trform']} (ported: {', '.join(TRANSPORT_FORMULAS)})")
     HStdp = np.asarray(WAVE["HStdp"], dtype=float)
-    dHS = np.zeros(HStdp.size)                       # only non-zero with diffraction (not ported)
+    dHS = np.zeros(HStdp.size)
+    if T.get("diffraction", 0) == 1 and field == "QS":
+        # gradient of the wave height along the coast (transport.m)
+        HS = HStdp
+        if T["trform"].upper() not in ("CERC", "CERC2", "KAMP", "MILH"):
+            HS = np.asarray(WAVE["HSbr"], dtype=float)
+        nq = HS.size
+        if nq > 1:
+            xq = np.asarray(xq, dtype=float)
+            yq = np.asarray(yq, dtype=float)
+            i = np.arange(nq)
+            im1 = np.maximum(i - 1, 0)
+            ip1 = np.minimum(i + 1, nq - 1)
+            with np.errstate(invalid="ignore"):
+                dHS = (HS[ip1] - HS[im1]) / np.fmax(m_hypot(yq[ip1] - yq[im1], xq[ip1] - xq[im1]), 1)
+            dHS[np.isnan(dHS)] = 0
     WAVE = dict(WAVE)                                # (MATLAB passes WAVE by value)
     if field == "QS" and T["suppresshighangle"] == 1:
         # transport at the critical angle where the angle exceeds it (positive side only, as upstream)

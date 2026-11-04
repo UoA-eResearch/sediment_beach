@@ -220,7 +220,7 @@ def test_help_lists_every_parameter_with_its_default():
 # (tests/data/octave_<case>_output.mat, written by make_references.py).
 from reference_cases import MODEL_CASES, model_settings  # noqa: E402
 
-_COAST_FIELDS = ("x", "y", "distx", "it", "dt", "nt", "time", "timenum")
+_COAST_FIELDS = ("x", "y", "it", "dt", "nt", "time", "timenum")
 _WAVE_FIELDS = ("QS", "HSo", "PHIo", "TP", "HStdp", "PHItdp", "HSbr", "PHIbr", "PHIc", "PHIcxy", "PHIf", "h0")
 # Coastline tolerances [m] of the cases that are not bit-identical. The breaking-wave
 # iteration leaves last-bit differences in HSbr at a few points; the critical angle
@@ -256,6 +256,8 @@ def test_model_matches_octave(tmp_path, case):
         else:
             np.testing.assert_array_equal(np.isnan(O[f]), np.isnan(a), err_msg=f)
             np.testing.assert_allclose(O[f], a, rtol=0, atol=tol, err_msg=f)
+    # distance along the coast: from x/y via pow, so NumPy vs. libm can differ by 1 ulp
+    np.testing.assert_allclose(O["distx"], ref.distx, rtol=1e-14, atol=tol, err_msg="distx")
     if tol == 0:
         for f in _WAVE_FIELDS:
             a = getattr(ref, f)

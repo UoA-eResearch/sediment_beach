@@ -76,6 +76,11 @@ MODEL_CASES = {
     "F11": lambda: _synthetic_closed(trform="CERC3", qscal=0.3, suppresshighangle=1, relaxationlength=300),
     "F12": lambda: _synthetic_closed(d=np.array(_D_XYD)),
     "F13": lambda: _synthetic_closed(preserveorientation=1),
+    # wave set-up term (alongshore wave-height gradient), switched on by S.diffraction
+    # (no structures: no diffraction itself), scaled by S.tanbetasetup
+    "F14": lambda: _synthetic_closed(diffraction=1),
+    "F15": lambda: _synthetic_closed(diffraction=1, tanbetasetup=0.1),
+    "F16": lambda: _synthetic_closed(diffraction=1, tanbetasetup=0.3, trform="CERC3"),
     # time steps: sub-steps when the stable time step is smaller than S.dt (large
     # transport), and output at given dates (S.storagedate)
     "T01": lambda: _synthetic_closed(qscal=2000, endofsimulation="1999-08-02"),

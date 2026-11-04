@@ -44,8 +44,10 @@ PARAMETERS = [
     ("gamma", "-", "breaking coefficient Hs/h"),
     ("porosity", "-", "porosity of the sediment"),
     ("tanbeta", "-", "mean bed slope"),
-    ("tanbetasetup", "-", "factor of the wave set-up (alongshore wave-height gradient) term; only "
-     "active with diffraction, which this configuration does not use"),
+    ("diffraction", "0/1", "1 switches on the wave set-up term of the transport (driven by the "
+     "alongshore wave-height gradient); without structures ShorelineS computes no diffraction itself"),
+    ("tanbetasetup", "-", "slope scaling the wave set-up term: -(2/tanbetasetup)*cos(angle)*dHs/ds; "
+     "smaller values give a larger effect (needs diffraction = 1)"),
     ("rhos", "kg/m3", "density of sand"),
     ("rhow", "kg/m3", "density of water"),
     ("g", "m/s2", "gravitational acceleration"),
